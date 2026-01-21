@@ -236,6 +236,23 @@ export async function registerRoutes(
   app.get(api.schedule.calculate.path, async (req, res) => {
     const orders = await storage.getOrders();
     const equipmentList = await storage.getEquipment();
+    const allCompatibility = await storage.getAllPartCompatibility();
+    
+    // Build compatibility lookup: partNumberId -> set of compatible equipmentIds
+    const compatibilityMap: Record<number, Set<number>> = {};
+    for (const c of allCompatibility) {
+      if (!compatibilityMap[c.partNumberId]) {
+        compatibilityMap[c.partNumberId] = new Set();
+      }
+      compatibilityMap[c.partNumberId].add(c.equipmentId);
+    }
+    
+    // Identify ESS Chambers (equipment with "ess" or "chamber" in the name)
+    const essChamberIds = new Set(
+      equipmentList
+        .filter(eq => eq.name.toLowerCase().includes("ess") || eq.name.toLowerCase().includes("chamber"))
+        .map(eq => eq.id)
+    );
     
     // Heuristic Scheduler Implementation
     // 1. Initialize machine availability
@@ -251,6 +268,10 @@ export async function registerRoutes(
       const part = await storage.getPart(order.partNumberId);
       if (!part || !part.steps) continue;
 
+      // Get compatible chambers for this part (empty set means all chambers allowed)
+      const partCompatibleChambers = compatibilityMap[order.partNumberId] || new Set();
+      const hasCompatibilityRestrictions = partCompatibleChambers.size > 0;
+
       let currentBatchStartTime = new Date();
       
       for (const step of part.steps) {
@@ -261,22 +282,31 @@ export async function registerRoutes(
         const eqRequirements = step.equipmentRequirements || [];
         if (eqRequirements.length === 0) continue;
 
-        // Find earliest time where ALL required equipment are available simultaneously
-        // This is a simplified version: Find the max availability across all required machines
+        // Separate ESS chambers from other equipment
+        const essChamberRequirements = eqRequirements.filter(req => essChamberIds.has(req.equipmentId));
+        const nonEssChamberRequirements = eqRequirements.filter(req => !essChamberIds.has(req.equipmentId));
         
+        // Filter ESS chambers by compatibility
+        let compatibleChambers = essChamberRequirements;
+        if (hasCompatibilityRestrictions && essChamberRequirements.length > 0) {
+          compatibleChambers = essChamberRequirements.filter(req => 
+            partCompatibleChambers.has(req.equipmentId)
+          );
+        }
+        
+        // Skip step if ESS chamber is required but none are compatible
+        if (essChamberRequirements.length > 0 && compatibleChambers.length === 0) continue;
+
+        // Find earliest time where all required equipment are available
         let startWindow = new Date(currentBatchStartTime);
         let selectedUnits: { eqId: number, unitIdx: number, durationMinutes: number | null }[] = [];
-
-        // We need to find a single unit for each required equipment type
-        // This is a greedy search for simplicity
-        
         let machinesReadyAt = new Date(startWindow);
         
-        for (const req of eqRequirements) {
+        // For non-ESS equipment: require all of them
+        for (const req of nonEssChamberRequirements) {
           const eqId = req.equipmentId;
           const slots = machineAvailability[eqId];
           
-          // Find earliest slot
           let earliestSlotIdx = 0;
           for(let i=1; i < slots.length; i++) {
             if (slots[i] < slots[earliestSlotIdx]) earliestSlotIdx = i;
@@ -287,6 +317,47 @@ export async function registerRoutes(
           }
           selectedUnits.push({ eqId, unitIdx: earliestSlotIdx, durationMinutes: req.durationMinutes ?? null });
         }
+        
+        // For ESS chambers: select ONE from the compatible options (earliest available)
+        let selectedChamber: { eqId: number, unitIdx: number, durationMinutes: number | null, availableAt: Date } | null = null;
+        
+        if (compatibleChambers.length > 0) {
+          for (const req of compatibleChambers) {
+            const eqId = req.equipmentId;
+            const slots = machineAvailability[eqId];
+            
+            // Find earliest slot for this chamber
+            for(let i=0; i < slots.length; i++) {
+              const slotAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime()));
+              
+              if (!selectedChamber || slotAvailableAt < selectedChamber.availableAt) {
+                selectedChamber = { 
+                  eqId, 
+                  unitIdx: i, 
+                  durationMinutes: req.durationMinutes ?? null,
+                  availableAt: slotAvailableAt 
+                };
+              }
+            }
+          }
+          
+          if (selectedChamber) {
+            if (selectedChamber.availableAt > machinesReadyAt) {
+              machinesReadyAt = selectedChamber.availableAt;
+            }
+            selectedUnits.push({ 
+              eqId: selectedChamber.eqId, 
+              unitIdx: selectedChamber.unitIdx, 
+              durationMinutes: selectedChamber.durationMinutes 
+            });
+          }
+        }
+        
+        // Get equipment names for task display
+        const usedEquipmentNames = selectedUnits.map(u => {
+          const eq = equipmentList.find(e => e.id === u.eqId);
+          return eq?.name || "Unknown";
+        }).join(", ");
 
         // Calculate duration: use equipment-specific duration if available, otherwise use step default
         // If multiple equipment have specific durations, use the maximum (all must complete)
@@ -311,7 +382,7 @@ export async function registerRoutes(
           partNumber: part.partNumber,
           stepId: step.id,
           equipmentIds: selectedUnits.map(u => u.eqId),
-          equipmentNames: eqRequirements.map(r => r.equipment.name).join(", "),
+          equipmentNames: usedEquipmentNames,
           startTime: formatISO(actualStartTime),
           endTime: formatISO(actualEndTime),
           type: "test_run",

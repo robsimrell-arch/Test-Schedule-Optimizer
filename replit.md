@@ -56,6 +56,14 @@ Each part number can have different test durations depending on which equipment 
 - If no duration is specified for an equipment, the step's default duration is used
 - The scheduler uses equipment-specific durations when calculating the production schedule
 
+### Part-Chamber Compatibility
+Each part number can be restricted to specific ESS Chambers:
+- In the Inventory page, select a part to configure which chambers it's compatible with
+- If no chambers are selected, the part can use any ESS Chamber listed in the step
+- The scheduler automatically selects the earliest available compatible chamber
+- Non-ESS equipment (e.g., Power Supply, ICT) is treated as required (all must be available)
+- ESS Chambers are treated as alternatives (scheduler picks one from compatible options)
+
 ### Build System
 - Development: Vite dev server with Express backend
 - Production: esbuild bundles server code, Vite builds client to `dist/public`
