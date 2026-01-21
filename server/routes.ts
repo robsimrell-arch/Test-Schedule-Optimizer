@@ -99,7 +99,8 @@ export async function registerRoutes(
         partNumberId: z.coerce.number(),
         equipmentRequirements: z.array(z.object({
           equipmentId: z.coerce.number(),
-          quantityRequired: z.coerce.number().default(1)
+          quantityRequired: z.coerce.number().default(1),
+          durationMinutes: z.coerce.number().optional().nullable()
         })),
         durationMinutes: z.coerce.number(),
         batchSize: z.coerce.number(),
@@ -138,7 +139,8 @@ export async function registerRoutes(
         stepOrder: z.coerce.number().optional(),
         equipmentRequirements: z.array(z.object({
           equipmentId: z.coerce.number(),
-          quantityRequired: z.coerce.number().default(1)
+          quantityRequired: z.coerce.number().default(1),
+          durationMinutes: z.coerce.number().optional().nullable()
         })).optional(),
       }).parse(req.body);
       
