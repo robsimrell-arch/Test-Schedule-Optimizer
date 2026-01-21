@@ -28,51 +28,61 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
   const create = useCreateWorkOrder();
   const { data: parts } = useParts();
 
-  const form = useForm({
-    resolver: zodResolver(insertWorkOrderSchema),
+  const form = useForm<any>({
     defaultValues: {
-      partNumberId: undefined,
+      partNumberId: "",
       quantity: 1,
       priority: 1,
-      status: "pending",
-      dueDate: null,
+      dueDate: "",
     },
   });
 
   const onSubmit = (data: any) => {
-    // Ensure date is ISO string if present
-    const payload = {
-      ...data,
-      dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null,
-      status: "pending" // Hardcode status for creation
-    };
+    console.log("Raw form data:", data);
     
-    // Convert partNumberId to number if it's a string
-    if (typeof payload.partNumberId === 'string') {
-      payload.partNumberId = parseInt(payload.partNumberId);
+    if (!data.partNumberId) {
+      alert("Please select a part number");
+      return;
     }
 
+    const payload: any = {
+      partNumberId: Number(data.partNumberId),
+      quantity: Number(data.quantity),
+      priority: Number(data.priority),
+      dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null,
+      status: "pending"
+    };
+
+    console.log("Sending payload to mutation:", payload);
+
     create.mutate(payload, { 
-      onSuccess: () => {
+      onSuccess: (response) => {
+        console.log("Creation response:", response);
         form.reset();
         onSuccess();
+      },
+      onError: (error: any) => {
+        console.error("Mutation error detailed:", {
+          message: error.message,
+          response: error.response,
+          stack: error.stack
+        });
+        alert("Failed to create work order: " + (error.message || "Check console for details"));
       }
     });
   };
 
+  const partNumberId = form.watch("partNumberId");
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label>Part Number</Label>
         <Select 
-          value={form.watch("partNumberId")?.toString() || ""} 
-          onValueChange={(val) => {
-            console.log("Selected part ID:", val);
-            form.setValue("partNumberId", parseInt(val), { shouldValidate: true });
-          }}
+          value={partNumberId} 
+          onValueChange={(val) => form.setValue("partNumberId", val)}
         >
-          <SelectTrigger>
+          <SelectTrigger data-testid="select-part-number">
             <SelectValue placeholder="Select part..." />
           </SelectTrigger>
           <SelectContent>
@@ -83,17 +93,28 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
             ))}
           </SelectContent>
         </Select>
-        {form.formState.errors.partNumberId && <p className="text-xs text-red-500">Required</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Quantity</Label>
-          <Input type="number" {...form.register("quantity", { valueAsNumber: true })} min={1} />
+          <Input 
+            type="number" 
+            {...form.register("quantity")} 
+            min={1} 
+            data-testid="input-quantity"
+          />
         </div>
         <div className="space-y-2">
           <Label>Priority</Label>
-          <Input type="number" {...form.register("priority", { valueAsNumber: true })} min={1} max={10} placeholder="1-10" />
+          <Input 
+            type="number" 
+            {...form.register("priority")} 
+            min={1} 
+            max={10} 
+            placeholder="1-10"
+            data-testid="input-priority"
+          />
         </div>
       </div>
 
@@ -101,16 +122,18 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
         <Label>Due Date</Label>
         <Input 
           type="date" 
-          {...form.register("dueDate")} 
-          onChange={(e) => {
-            const val = e.target.value;
-            form.setValue("dueDate", val || null);
-          }}
+          {...form.register("dueDate")}
+          data-testid="input-due-date"
         />
       </div>
 
-      <DialogFooter>
-        <Button type="submit" disabled={create.isPending} className="w-full">
+      <DialogFooter className="pt-4">
+        <Button 
+          type="submit" 
+          disabled={create.isPending} 
+          className="w-full"
+          data-testid="button-submit-work-order"
+        >
           {create.isPending ? "Creating..." : "Create Work Order"}
         </Button>
       </DialogFooter>

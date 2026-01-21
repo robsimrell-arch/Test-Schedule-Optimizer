@@ -118,22 +118,34 @@ export async function registerRoutes(
 
   app.post(api.orders.create.path, async (req, res) => {
     try {
-      const input = api.orders.create.input.extend({
-        partNumberId: z.coerce.number(),
-        quantity: z.coerce.number(),
-        priority: z.coerce.number().default(1),
-      }).parse(req.body);
+      console.log("API POST /api/orders - Request body:", req.body);
+      
+      const partNumberId = Number(req.body.partNumberId);
+      const quantity = Number(req.body.quantity);
+      const priority = Number(req.body.priority) || 1;
+      const dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
+      const status = req.body.status || "pending";
 
-      const order = await storage.createOrder(input);
-      res.status(201).json(order);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({
-          message: err.errors[0].message,
-          field: err.errors[0].path.join('.'),
-        });
+      console.log("Parsed values:", { partNumberId, quantity, priority, dueDate, status });
+
+      if (isNaN(partNumberId) || isNaN(quantity)) {
+        console.error("Validation failed: NaN values detected");
+        return res.status(400).json({ message: "Invalid partNumberId or quantity" });
       }
-      throw err;
+
+      const order = await storage.createOrder({
+        partNumberId,
+        quantity,
+        priority,
+        dueDate,
+        status
+      });
+
+      console.log("Storage success, order ID:", order.id);
+      res.status(201).json(order);
+    } catch (err: any) {
+      console.error("CRITICAL ERROR in POST /api/orders:", err);
+      res.status(500).json({ message: err.message || "Internal server error" });
     }
   });
 
