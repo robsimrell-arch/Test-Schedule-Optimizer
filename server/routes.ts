@@ -80,7 +80,10 @@ export async function registerRoutes(
     try {
       const body = z.object({
         partNumberId: z.coerce.number(),
-        equipmentIds: z.array(z.coerce.number()),
+        equipmentRequirements: z.array(z.object({
+          equipmentId: z.coerce.number(),
+          quantityRequired: z.coerce.number().default(1)
+        })),
         durationMinutes: z.coerce.number(),
         batchSize: z.coerce.number(),
         stepOrder: z.coerce.number(),
@@ -91,7 +94,7 @@ export async function registerRoutes(
         durationMinutes: body.durationMinutes,
         batchSize: body.batchSize,
         stepOrder: body.stepOrder
-      }, body.equipmentIds);
+      }, body.equipmentRequirements);
       
       res.status(201).json(step);
     } catch (err) {

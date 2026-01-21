@@ -30,6 +30,7 @@ export const testSteps = pgTable("test_steps", {
 export const stepEquipment = pgTable("step_equipment", {
   stepId: integer("step_id").notNull(),
   equipmentId: integer("equipment_id").notNull(),
+  quantityRequired: integer("quantity_required").notNull().default(1), // How many units of this equipment needed
 }, (t) => ({
   pk: primaryKey({ columns: [t.stepId, t.equipmentId] }),
 }));

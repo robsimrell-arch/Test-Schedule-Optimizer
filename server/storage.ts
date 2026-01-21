@@ -96,13 +96,17 @@ export class DatabaseStorage implements IStorage {
     await db.delete(partNumbers).where(eq(partNumbers.id, id));
   }
 
-  async createStep(step: InsertTestStep, equipmentIds: number[]): Promise<TestStepWithEquipment> {
+  async createStep(step: InsertTestStep, equipmentRequirements: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment> {
     return await db.transaction(async (tx) => {
       const [newStep] = await tx.insert(testSteps).values(step).returning();
       
-      if (equipmentIds.length > 0) {
+      if (equipmentRequirements.length > 0) {
         await tx.insert(stepEquipment).values(
-          equipmentIds.map(eqId => ({ stepId: newStep.id, equipmentId: eqId }))
+          equipmentRequirements.map(eq => ({ 
+            stepId: newStep.id, 
+            equipmentId: eq.equipmentId,
+            quantityRequired: eq.quantityRequired
+          }))
         );
       }
 
