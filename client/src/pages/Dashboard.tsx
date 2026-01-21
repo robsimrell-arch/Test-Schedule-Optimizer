@@ -155,6 +155,7 @@ export default function Dashboard() {
               <Gantt
                 tasks={ganttTasks}
                 viewMode={viewMode}
+                viewDate={new Date()}
                 columnWidth={viewMode === ViewMode.Day ? 100 : 60}
                 listCellWidth="155px"
                 barBackgroundColor="#3b82f6"
