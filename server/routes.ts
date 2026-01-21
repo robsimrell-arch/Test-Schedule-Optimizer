@@ -339,8 +339,8 @@ export async function registerRoutes(
   });
 
   // === SCHEDULER LOGIC ===
+  // Greedy scheduler that maximizes equipment utilization while respecting priorities
   app.get(api.schedule.calculate.path, async (req, res) => {
-    // Parse shifts parameter (1 or 2, default to 2)
     const shiftsParam = parseInt(req.query.shifts as string) || 2;
     const shifts: 1 | 2 = shiftsParam === 1 ? 1 : 2;
     
@@ -349,7 +349,7 @@ export async function registerRoutes(
     const allCompatibility = await storage.getAllPartCompatibility();
     const chambers = await storage.getChambers();
     
-    // Build compatibility lookup: partNumberId -> array of { equipmentId, durationMinutes }
+    // Build compatibility lookup
     const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null }[]> = {};
     for (const c of allCompatibility) {
       if (!compatibilityMap[c.partNumberId]) {
@@ -358,11 +358,9 @@ export async function registerRoutes(
       compatibilityMap[c.partNumberId].push({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes });
     }
     
-    // Get all chamber IDs
     const chamberIds = new Set(chambers.map(c => c.id));
     
-    // Heuristic Scheduler Implementation
-    // 1. Initialize machine availability (start at next working time)
+    // Initialize machine availability
     const now = new Date();
     const workingStartTime = getNextWorkingTime(now, shifts);
     
@@ -371,165 +369,220 @@ export async function registerRoutes(
       machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
     });
 
-    const tasks: ScheduledTask[] = [];
+    // Build list of all pending tasks (order-step combinations)
+    interface PendingTask {
+      orderId: number;
+      orderPriority: number;
+      partNumberId: number;
+      partNumber: string;
+      stepId: number;
+      stepOrder: number;
+      step: any;
+      quantity: number;
+    }
     
-    // 2. Process orders by priority
+    const pendingTasks: PendingTask[] = [];
+    const orderStepCompletion: Record<number, Date> = {}; // orderId -> when last step finished
+    
     for (const order of orders) {
       const part = await storage.getPart(order.partNumberId);
-      if (!part || !part.steps) continue;
-
-      // Get compatible chambers for this part (empty array means all chambers allowed)
-      const partCompatibleChambers = compatibilityMap[order.partNumberId] || [];
-      const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
-
-      let currentBatchStartTime = new Date(workingStartTime);
+      if (!part || !part.steps || part.steps.length === 0) continue;
+      
+      orderStepCompletion[order.id] = new Date(workingStartTime);
       
       for (const step of part.steps) {
-        const totalUnits = order.quantity;
-        const batchSize = step.batchSize;
-        const batchesNeeded = Math.ceil(totalUnits / batchSize);
-        
-        // Get non-chamber equipment requirements from step
-        const eqRequirements = (step.equipmentRequirements || []).filter(
-          req => !chamberIds.has(req.equipmentId)
-        );
-
-        // Find earliest time where all required equipment are available
-        let selectedUnits: { eqId: number, unitIdx: number, durationMinutes: number | null }[] = [];
-        let machinesReadyAt = new Date(currentBatchStartTime);
-        
-        // For non-chamber equipment: require quantityRequired units of each
-        for (const req of eqRequirements) {
-          const eqId = req.equipmentId;
-          const slots = machineAvailability[eqId];
-          if (!slots) continue;
-          
-          const unitsNeeded = req.quantityRequired || 1;
-          
-          // Sort slot indices by availability time to find the N earliest
-          const slotIndices = slots.map((time, idx) => ({ idx, time }))
-            .sort((a, b) => a.time.getTime() - b.time.getTime());
-          
-          // Take the first unitsNeeded slots
-          const selectedSlots = slotIndices.slice(0, Math.min(unitsNeeded, slots.length));
-          
-          // The time when all required units are ready is when the last of them becomes available
-          if (selectedSlots.length > 0) {
-            const lastSlotTime = selectedSlots[selectedSlots.length - 1].time;
-            if (lastSlotTime > machinesReadyAt) {
-              machinesReadyAt = lastSlotTime;
-            }
-          }
-          
-          // Add all selected units
-          for (const slot of selectedSlots) {
-            selectedUnits.push({ eqId, unitIdx: slot.idx, durationMinutes: req.durationMinutes ?? null });
-          }
-        }
-        
-        // Handle chamber requirement based on chamberRequired flag
-        let chamberDuration: number | null = null;
-        
-        if (step.chamberRequired) {
-          // Get compatible chambers for this part, or all chambers if no restrictions
-          let availableChambers: { equipmentId: number; durationMinutes: number | null }[];
-          
-          if (hasCompatibilityRestrictions) {
-            availableChambers = partCompatibleChambers;
-          } else {
-            // No restrictions - use all chambers with no specific duration
-            availableChambers = chambers.map(c => ({ equipmentId: c.id, durationMinutes: null }));
-          }
-          
-          // Skip step if chamber is required but none are available/compatible
-          if (availableChambers.length === 0) continue;
-          
-          // Select ONE chamber from the available options (earliest available)
-          let selectedChamber: { eqId: number, unitIdx: number, durationMinutes: number | null, availableAt: Date } | null = null;
-          
-          for (const chamberInfo of availableChambers) {
-            const eqId = chamberInfo.equipmentId;
-            const slots = machineAvailability[eqId];
-            if (!slots) continue;
-            
-            // Find earliest slot for this chamber
-            for(let i=0; i < slots.length; i++) {
-              const slotAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime()));
-              
-              if (!selectedChamber || slotAvailableAt < selectedChamber.availableAt) {
-                selectedChamber = { 
-                  eqId, 
-                  unitIdx: i, 
-                  durationMinutes: chamberInfo.durationMinutes,
-                  availableAt: slotAvailableAt 
-                };
-              }
-            }
-          }
-          
-          if (selectedChamber) {
-            if (selectedChamber.availableAt > machinesReadyAt) {
-              machinesReadyAt = selectedChamber.availableAt;
-            }
-            selectedUnits.push({ 
-              eqId: selectedChamber.eqId, 
-              unitIdx: selectedChamber.unitIdx, 
-              durationMinutes: selectedChamber.durationMinutes 
-            });
-            chamberDuration = selectedChamber.durationMinutes;
-          } else {
-            // No chamber slot found - skip step
-            continue;
-          }
-        }
-        
-        // Skip if no equipment selected at all
-        if (selectedUnits.length === 0) continue;
-        
-        // Get equipment names for task display
-        const usedEquipmentNames = selectedUnits.map(u => {
-          const eq = equipmentList.find(e => e.id === u.eqId);
-          return eq?.name || "Unknown";
-        }).join(", ");
-
-        // Calculate duration: 
-        // - If chamberRequired and chamber has specific duration, use that
-        // - Else use step default duration
-        let effectiveDuration = step.durationMinutes;
-        
-        if (step.chamberRequired && chamberDuration !== null) {
-          effectiveDuration = chamberDuration;
-        }
-        
-        const totalDuration = batchesNeeded * effectiveDuration;
-
-        // Ensure start time is within working hours
-        let actualStartTime = getNextWorkingTime(machinesReadyAt, shifts);
-        // Calculate end time accounting for shift hours (skipping non-working hours)
-        let actualEndTime = addWorkingMinutes(actualStartTime, totalDuration, shifts);
-
-        tasks.push({
-          id: `wo-${order.id}-step-${step.id}`,
-          workOrderId: order.id,
+        pendingTasks.push({
+          orderId: order.id,
+          orderPriority: order.priority ?? 0,
+          partNumberId: order.partNumberId,
           partNumber: part.partNumber,
           stepId: step.id,
           stepOrder: step.stepOrder,
-          equipmentIds: selectedUnits.map(u => u.eqId),
-          equipmentNames: usedEquipmentNames,
-          startTime: formatISO(actualStartTime),
-          endTime: formatISO(actualEndTime),
-          type: "test_run",
-          progress: 0,
-          dependencies: []
+          step,
+          quantity: order.quantity
         });
-
-        // Update all machines involved
-        for (const unit of selectedUnits) {
-          machineAvailability[unit.eqId][unit.unitIdx] = actualEndTime;
-        }
-
-        currentBatchStartTime = actualEndTime;
       }
+    }
+    
+    // Track which step each order is currently on
+    const orderCurrentStep: Record<number, number> = {};
+    for (const order of orders) {
+      orderCurrentStep[order.id] = 1; // Start at step 1
+    }
+
+    const tasks: ScheduledTask[] = [];
+    
+    // Helper function to find earliest equipment availability for a task
+    function findEarliestSlot(task: PendingTask, minStartTime: Date): {
+      startTime: Date;
+      endTime: Date;
+      selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[];
+      chamberDuration: number | null;
+    } | null {
+      const step = task.step;
+      const partCompatibleChambers = compatibilityMap[task.partNumberId] || [];
+      const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
+      
+      const totalUnits = task.quantity;
+      const batchSize = step.batchSize;
+      const batchesNeeded = Math.ceil(totalUnits / batchSize);
+      
+      const eqRequirements = (step.equipmentRequirements || []).filter(
+        (req: any) => !chamberIds.has(req.equipmentId)
+      );
+
+      let selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[] = [];
+      let machinesReadyAt = new Date(minStartTime);
+      
+      // Find non-chamber equipment
+      for (const req of eqRequirements) {
+        const eqId = req.equipmentId;
+        const slots = machineAvailability[eqId];
+        if (!slots) continue;
+        
+        const unitsNeeded = req.quantityRequired || 1;
+        const slotIndices = slots.map((time: Date, idx: number) => ({ idx, time }))
+          .sort((a: any, b: any) => a.time.getTime() - b.time.getTime());
+        
+        const selectedSlots = slotIndices.slice(0, Math.min(unitsNeeded, slots.length));
+        
+        if (selectedSlots.length > 0) {
+          const lastSlotTime = selectedSlots[selectedSlots.length - 1].time;
+          if (lastSlotTime > machinesReadyAt) {
+            machinesReadyAt = lastSlotTime;
+          }
+        }
+        
+        for (const slot of selectedSlots) {
+          selectedUnits.push({ eqId, unitIdx: slot.idx, durationMinutes: req.durationMinutes ?? null });
+        }
+      }
+      
+      // Handle chamber requirement
+      let chamberDuration: number | null = null;
+      
+      if (step.chamberRequired) {
+        let availableChambers: { equipmentId: number; durationMinutes: number | null }[];
+        
+        if (hasCompatibilityRestrictions) {
+          availableChambers = partCompatibleChambers;
+        } else {
+          availableChambers = chambers.map(c => ({ equipmentId: c.id, durationMinutes: null }));
+        }
+        
+        if (availableChambers.length === 0) return null;
+        
+        let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAt: Date } | null = null;
+        
+        for (const chamberInfo of availableChambers) {
+          const eqId = chamberInfo.equipmentId;
+          const slots = machineAvailability[eqId];
+          if (!slots) continue;
+          
+          for (let i = 0; i < slots.length; i++) {
+            const slotAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime()));
+            
+            if (!selectedChamber || slotAvailableAt < selectedChamber.availableAt) {
+              selectedChamber = { 
+                eqId, 
+                unitIdx: i, 
+                durationMinutes: chamberInfo.durationMinutes,
+                availableAt: slotAvailableAt 
+              };
+            }
+          }
+        }
+        
+        if (!selectedChamber) return null;
+        
+        if (selectedChamber.availableAt > machinesReadyAt) {
+          machinesReadyAt = selectedChamber.availableAt;
+        }
+        selectedUnits.push({ 
+          eqId: selectedChamber.eqId, 
+          unitIdx: selectedChamber.unitIdx, 
+          durationMinutes: selectedChamber.durationMinutes 
+        });
+        chamberDuration = selectedChamber.durationMinutes;
+      }
+      
+      if (selectedUnits.length === 0) return null;
+      
+      let effectiveDuration = step.durationMinutes;
+      if (step.chamberRequired && chamberDuration !== null) {
+        effectiveDuration = chamberDuration;
+      }
+      
+      const totalDuration = batchesNeeded * effectiveDuration;
+      const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts);
+      const actualEndTime = addWorkingMinutes(actualStartTime, totalDuration, shifts);
+      
+      return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits, chamberDuration };
+    }
+    
+    // Greedy scheduling loop - schedule tasks until none remain
+    while (pendingTasks.length > 0) {
+      // Find all tasks that are ready (correct step order for their order)
+      const readyTasks = pendingTasks.filter(t => t.stepOrder === orderCurrentStep[t.orderId]);
+      
+      if (readyTasks.length === 0) break; // No more tasks can be scheduled
+      
+      // For each ready task, calculate when it could start
+      const taskOptions: { task: PendingTask; slot: ReturnType<typeof findEarliestSlot> }[] = [];
+      
+      for (const task of readyTasks) {
+        const minStartTime = orderStepCompletion[task.orderId];
+        const slot = findEarliestSlot(task, minStartTime);
+        if (slot) {
+          taskOptions.push({ task, slot });
+        }
+      }
+      
+      if (taskOptions.length === 0) break;
+      
+      // Sort by: earliest start time, then by priority (higher priority first)
+      taskOptions.sort((a, b) => {
+        const timeDiff = a.slot!.startTime.getTime() - b.slot!.startTime.getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return b.task.orderPriority - a.task.orderPriority; // Higher priority wins ties
+      });
+      
+      // Schedule the best task
+      const best = taskOptions[0];
+      const { task, slot } = best;
+      
+      const usedEquipmentNames = slot!.selectedUnits.map(u => {
+        const eq = equipmentList.find(e => e.id === u.eqId);
+        return eq?.name || "Unknown";
+      }).join(", ");
+      
+      tasks.push({
+        id: `wo-${task.orderId}-step-${task.stepId}`,
+        workOrderId: task.orderId,
+        partNumber: task.partNumber,
+        stepId: task.stepId,
+        stepOrder: task.stepOrder,
+        equipmentIds: slot!.selectedUnits.map(u => u.eqId),
+        equipmentNames: usedEquipmentNames,
+        startTime: formatISO(slot!.startTime),
+        endTime: formatISO(slot!.endTime),
+        type: "test_run",
+        progress: 0,
+        dependencies: []
+      });
+      
+      // Update machine availability
+      for (const unit of slot!.selectedUnits) {
+        machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
+      }
+      
+      // Update order tracking
+      orderStepCompletion[task.orderId] = slot!.endTime;
+      orderCurrentStep[task.orderId] = task.stepOrder + 1;
+      
+      // Remove task from pending
+      const idx = pendingTasks.findIndex(t => t.orderId === task.orderId && t.stepId === task.stepId);
+      if (idx >= 0) pendingTasks.splice(idx, 1);
     }
 
     res.json({
