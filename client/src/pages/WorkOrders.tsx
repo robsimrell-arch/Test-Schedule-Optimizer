@@ -38,8 +38,6 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
   });
 
   const onSubmit = (data: any) => {
-    console.log("Raw form data:", data);
-    
     if (!data.partNumberId) {
       alert("Please select a part number");
       return;
@@ -53,21 +51,13 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
       status: "pending"
     };
 
-    console.log("Sending payload to mutation:", payload);
-
     create.mutate(payload, { 
-      onSuccess: (response) => {
-        console.log("Creation response:", response);
+      onSuccess: () => {
         form.reset();
         onSuccess();
       },
       onError: (error: any) => {
-        console.error("Mutation error detailed:", {
-          message: error.message,
-          response: error.response,
-          stack: error.stack
-        });
-        alert("Failed to create work order: " + (error.message || "Check console for details"));
+        alert("Failed to create work order: " + (error.message || "Unknown error"));
       }
     });
   };

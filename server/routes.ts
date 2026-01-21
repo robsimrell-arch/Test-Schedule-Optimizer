@@ -118,18 +118,13 @@ export async function registerRoutes(
 
   app.post(api.orders.create.path, async (req, res) => {
     try {
-      console.log("API POST /api/orders - Request body:", req.body);
-      
       const partNumberId = Number(req.body.partNumberId);
       const quantity = Number(req.body.quantity);
       const priority = Number(req.body.priority) || 1;
       const dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
       const status = req.body.status || "pending";
 
-      console.log("Parsed values:", { partNumberId, quantity, priority, dueDate, status });
-
       if (isNaN(partNumberId) || isNaN(quantity)) {
-        console.error("Validation failed: NaN values detected");
         return res.status(400).json({ message: "Invalid partNumberId or quantity" });
       }
 
@@ -141,10 +136,9 @@ export async function registerRoutes(
         status
       });
 
-      console.log("Storage success, order ID:", order.id);
       res.status(201).json(order);
     } catch (err: any) {
-      console.error("CRITICAL ERROR in POST /api/orders:", err);
+      console.error("Error creating work order:", err);
       res.status(500).json({ message: err.message || "Internal server error" });
     }
   });
