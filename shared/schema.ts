@@ -31,6 +31,7 @@ export const stepEquipment = pgTable("step_equipment", {
   stepId: integer("step_id").notNull(),
   equipmentId: integer("equipment_id").notNull(),
   quantityRequired: integer("quantity_required").notNull().default(1), // How many units of this equipment needed
+  durationMinutes: integer("duration_minutes"), // Equipment-specific duration (nullable, falls back to step duration)
 }, (t) => ({
   pk: primaryKey({ columns: [t.stepId, t.equipmentId] }),
 }));
