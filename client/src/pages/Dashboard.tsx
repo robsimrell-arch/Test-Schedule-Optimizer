@@ -7,7 +7,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, BarChart3, CalendarDays } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { startOfDay } from "date-fns";
 
 export default function Dashboard() {
   const { data: schedule, isLoading, isError } = useSchedule();
@@ -44,7 +43,7 @@ export default function Dashboard() {
   }
 
   // Transform tasks for Gantt library
-  const ganttTasks: Task[] = schedule.tasks.map((t) => ({
+  const ganttTasks: Task[] = schedule.tasks.map((t: any) => ({
     start: new Date(t.startTime),
     end: new Date(t.endTime),
     name: `${t.partNumber} (${t.equipmentNames})`,
@@ -55,7 +54,7 @@ export default function Dashboard() {
     styles: { progressColor: "#3b82f6", backgroundColor: "#bfdbfe" },
   }));
 
-  const equipmentStats = Object.values(schedule.equipmentUsage);
+  const equipmentStats = Object.values(schedule.equipmentUsage || {});
 
   return (
     <Layout>
@@ -93,7 +92,7 @@ export default function Dashboard() {
               <div className="text-3xl font-bold text-foreground">
                 {equipmentStats.length > 0
                   ? Math.round(
-                      equipmentStats.reduce((acc, curr) => acc + curr.usage, 0) /
+                      equipmentStats.reduce((acc: number, curr: any) => acc + (curr.usage || 0), 0) /
                         equipmentStats.length
                     )
                   : 0}
@@ -164,16 +163,16 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {equipmentStats.map((eq, i) => (
+              {equipmentStats.map((eq: any, i) => (
                 <div key={i} className="space-y-1">
                   <div className="flex justify-between text-sm font-medium">
                     <span>{eq.name}</span>
-                    <span>{Math.round(eq.usage)}%</span>
+                    <span>{Math.round(eq.usage || 0)}%</span>
                   </div>
                   <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary transition-all duration-500"
-                      style={{ width: `${Math.min(eq.usage, 100)}%` }}
+                      style={{ width: `${Math.min(eq.usage || 0, 100)}%` }}
                     />
                   </div>
                 </div>
