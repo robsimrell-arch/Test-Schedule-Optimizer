@@ -247,10 +247,10 @@ export async function registerRoutes(
       compatibilityMap[c.partNumberId].add(c.equipmentId);
     }
     
-    // Identify ESS Chambers (equipment with "ess" or "chamber" in the name)
+    // Identify ESS Chambers (equipment with "chamber" in the name)
     const essChamberIds = new Set(
       equipmentList
-        .filter(eq => eq.name.toLowerCase().includes("ess") || eq.name.toLowerCase().includes("chamber"))
+        .filter(eq => eq.name.toLowerCase().includes("chamber"))
         .map(eq => eq.id)
     );
     

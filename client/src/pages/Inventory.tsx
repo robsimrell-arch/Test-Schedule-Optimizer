@@ -422,7 +422,7 @@ function ChamberCompatibilitySection({ partId }: { partId: number }) {
   const setCompatibility = useSetPartCompatibility();
   
   const essChambers = equipment?.filter(eq => 
-    eq.name.toLowerCase().includes("ess") || eq.name.toLowerCase().includes("chamber")
+    eq.name.toLowerCase().includes("chamber")
   ) || [];
   
   const compatibleIds = compatibility?.map(c => c.equipmentId) || [];
