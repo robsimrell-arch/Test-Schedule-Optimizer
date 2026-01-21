@@ -543,11 +543,14 @@ function ChamberCompatibilitySection({ partId }: { partId: number }) {
 
 function ChamberCompatibilityTab() {
   const { data: parts, isLoading: isLoadingParts } = useParts();
-  const { data: chambers, isLoading: isLoadingChambers } = useChambers();
+  const { data: rawChambers, isLoading: isLoadingChambers } = useChambers();
   const { data: allCompatibility, isLoading: isLoadingCompat } = useAllCompatibility();
   const setCompatibility = useSetPartCompatibility();
 
   const isLoading = isLoadingParts || isLoadingChambers || isLoadingCompat;
+  
+  // Sort chambers by name so ESS Chamber 1 comes before ESS Chamber 2, etc.
+  const chambers = rawChambers?.slice().sort((a, b) => a.name.localeCompare(b.name));
 
   const getCompatibility = (partId: number, chamberId: number) => {
     return allCompatibility?.find(c => c.partNumberId === partId && c.equipmentId === chamberId);
