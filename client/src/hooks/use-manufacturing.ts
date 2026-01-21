@@ -134,7 +134,7 @@ export function useCreateStep() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (data: InsertTestStep) => {
+    mutationFn: async (data: any) => {
       const res = await fetch(api.steps.create.path, {
         method: api.steps.create.method,
         headers: { "Content-Type": "application/json" },
@@ -143,9 +143,10 @@ export function useCreateStep() {
       if (!res.ok) throw new Error("Failed to add test step");
       return api.steps.create.responses[201].parse(await res.json());
     },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: [api.parts.get.path, variables.partNumberId] });
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: [api.parts.get.path, data.partNumberId] });
       queryClient.invalidateQueries({ queryKey: [api.parts.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
       toast({ title: "Success", description: "Test step added" });
     },
   });
