@@ -155,7 +155,7 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
       stepOrder: 1,
       durationMinutes: 60,
       batchSize: 1,
-      equipmentRequirements: [] as { equipmentId: number; quantityRequired: number }[],
+      equipmentRequirements: [] as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
     },
   });
 
@@ -164,7 +164,7 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
   const toggleEquipment = (eqId: number, checked: boolean) => {
     const current = form.getValues("equipmentRequirements");
     if (checked) {
-      form.setValue("equipmentRequirements", [...current, { equipmentId: eqId, quantityRequired: 1 }]);
+      form.setValue("equipmentRequirements", [...current, { equipmentId: eqId, quantityRequired: 1, durationMinutes: null }]);
     } else {
       form.setValue("equipmentRequirements", current.filter(r => r.equipmentId !== eqId));
     }
@@ -174,6 +174,13 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
     const current = form.getValues("equipmentRequirements");
     form.setValue("equipmentRequirements", current.map(r => 
       r.equipmentId === eqId ? { ...r, quantityRequired: qty } : r
+    ));
+  };
+
+  const updateEquipmentDuration = (eqId: number, duration: number | null) => {
+    const current = form.getValues("equipmentRequirements");
+    form.setValue("equipmentRequirements", current.map(r => 
+      r.equipmentId === eqId ? { ...r, durationMinutes: duration } : r
     ));
   };
 
@@ -195,35 +202,56 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
           <div className="space-y-2 mt-2">
             {equipment.map((eq) => {
               const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
-              const currentQty = equipmentReqs.find(r => r.equipmentId === eq.id)?.quantityRequired || 1;
+              const currentReq = equipmentReqs.find(r => r.equipmentId === eq.id);
+              const currentQty = currentReq?.quantityRequired || 1;
+              const currentDuration = currentReq?.durationMinutes ?? "";
               
               return (
-                <div key={eq.id} className="flex items-center gap-3 p-2 rounded border bg-card">
-                  <Checkbox
-                    id={`eq-${eq.id}`}
-                    data-testid={`checkbox-equipment-${eq.id}`}
-                    checked={isSelected}
-                    onCheckedChange={(checked) => toggleEquipment(eq.id, !!checked)}
-                  />
-                  <label
-                    htmlFor={`eq-${eq.id}`}
-                    className="text-sm font-medium leading-none cursor-pointer flex-1"
-                  >
-                    {eq.name}
-                    <span className="text-xs text-muted-foreground ml-2">({eq.quantity} available)</span>
-                  </label>
+                <div key={eq.id} className="p-2 rounded border bg-card space-y-2">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id={`eq-${eq.id}`}
+                      data-testid={`checkbox-equipment-${eq.id}`}
+                      checked={isSelected}
+                      onCheckedChange={(checked) => toggleEquipment(eq.id, !!checked)}
+                    />
+                    <label
+                      htmlFor={`eq-${eq.id}`}
+                      className="text-sm font-medium leading-none cursor-pointer flex-1"
+                    >
+                      {eq.name}
+                      <span className="text-xs text-muted-foreground ml-2">({eq.quantity} available)</span>
+                    </label>
+                  </div>
                   {isSelected && (
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs text-muted-foreground">Qty:</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={eq.quantity}
-                        value={currentQty}
-                        onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-16 h-8"
-                        data-testid={`input-equipment-qty-${eq.id}`}
-                      />
+                    <div className="flex items-center gap-4 ml-6">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-muted-foreground whitespace-nowrap">Qty:</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={eq.quantity}
+                          value={currentQty}
+                          onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-16 h-8"
+                          data-testid={`input-equipment-qty-${eq.id}`}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-muted-foreground whitespace-nowrap">Duration (min):</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={currentDuration}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateEquipmentDuration(eq.id, val === "" ? null : parseInt(val) || null);
+                          }}
+                          placeholder="Default"
+                          className="w-20 h-8"
+                          data-testid={`input-equipment-duration-${eq.id}`}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -259,7 +287,8 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
   
   const initialEquipmentReqs = step.equipmentRequirements?.map((r: any) => ({
     equipmentId: r.equipmentId,
-    quantityRequired: r.quantityRequired || 1
+    quantityRequired: r.quantityRequired || 1,
+    durationMinutes: r.durationMinutes ?? null
   })) || [];
   
   const form = useForm({
@@ -267,7 +296,7 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
       stepOrder: step.stepOrder,
       durationMinutes: step.durationMinutes,
       batchSize: step.batchSize,
-      equipmentRequirements: initialEquipmentReqs as { equipmentId: number; quantityRequired: number }[],
+      equipmentRequirements: initialEquipmentReqs as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
     },
   });
 
@@ -276,7 +305,7 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
   const toggleEquipment = (eqId: number, checked: boolean) => {
     const current = form.getValues("equipmentRequirements");
     if (checked) {
-      form.setValue("equipmentRequirements", [...current, { equipmentId: eqId, quantityRequired: 1 }]);
+      form.setValue("equipmentRequirements", [...current, { equipmentId: eqId, quantityRequired: 1, durationMinutes: null }]);
     } else {
       form.setValue("equipmentRequirements", current.filter(r => r.equipmentId !== eqId));
     }
@@ -286,6 +315,13 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
     const current = form.getValues("equipmentRequirements");
     form.setValue("equipmentRequirements", current.map(r => 
       r.equipmentId === eqId ? { ...r, quantityRequired: qty } : r
+    ));
+  };
+
+  const updateEquipmentDuration = (eqId: number, duration: number | null) => {
+    const current = form.getValues("equipmentRequirements");
+    form.setValue("equipmentRequirements", current.map(r => 
+      r.equipmentId === eqId ? { ...r, durationMinutes: duration } : r
     ));
   };
 
@@ -302,31 +338,52 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
         <div className="space-y-2 mt-2 max-h-48 overflow-y-auto">
           {equipment.map((eq) => {
             const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
-            const currentQty = equipmentReqs.find(r => r.equipmentId === eq.id)?.quantityRequired || 1;
+            const currentReq = equipmentReqs.find(r => r.equipmentId === eq.id);
+            const currentQty = currentReq?.quantityRequired || 1;
+            const currentDuration = currentReq?.durationMinutes ?? "";
             
             return (
-              <div key={eq.id} className="flex items-center gap-3 p-2 rounded border bg-card">
-                <Checkbox
-                  id={`edit-eq-${eq.id}`}
-                  data-testid={`checkbox-edit-equipment-${eq.id}`}
-                  checked={isSelected}
-                  onCheckedChange={(checked) => toggleEquipment(eq.id, !!checked)}
-                />
-                <label htmlFor={`edit-eq-${eq.id}`} className="text-sm font-medium leading-none cursor-pointer flex-1">
-                  {eq.name}
-                </label>
+              <div key={eq.id} className="p-2 rounded border bg-card space-y-2">
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id={`edit-eq-${eq.id}`}
+                    data-testid={`checkbox-edit-equipment-${eq.id}`}
+                    checked={isSelected}
+                    onCheckedChange={(checked) => toggleEquipment(eq.id, !!checked)}
+                  />
+                  <label htmlFor={`edit-eq-${eq.id}`} className="text-sm font-medium leading-none cursor-pointer flex-1">
+                    {eq.name}
+                  </label>
+                </div>
                 {isSelected && (
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs text-muted-foreground">Qty:</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={eq.quantity}
-                      value={currentQty}
-                      onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-16 h-8"
-                      data-testid={`input-edit-equipment-qty-${eq.id}`}
-                    />
+                  <div className="flex items-center gap-4 ml-6">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground whitespace-nowrap">Qty:</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={eq.quantity}
+                        value={currentQty}
+                        onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-16 h-8"
+                        data-testid={`input-edit-equipment-qty-${eq.id}`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground whitespace-nowrap">Duration (min):</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={currentDuration}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          updateEquipmentDuration(eq.id, val === "" ? null : parseInt(val) || null);
+                        }}
+                        placeholder="Default"
+                        className="w-20 h-8"
+                        data-testid={`input-edit-equipment-duration-${eq.id}`}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
