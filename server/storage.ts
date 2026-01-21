@@ -142,12 +142,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOrders(): Promise<(WorkOrder & { partNumber: PartNumber })[]> {
-    return await db.query.workOrders.findMany({
+    const orders = await db.query.workOrders.findMany({
       with: {
         partNumber: true
       },
       orderBy: (orders, { desc }) => [desc(orders.priority), desc(orders.createdAt)]
     });
+    return orders as (WorkOrder & { partNumber: PartNumber })[];
   }
 
   async createOrder(order: InsertWorkOrder): Promise<WorkOrder> {

@@ -43,7 +43,12 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
       ...data,
       dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null,
     };
-    create.mutate(payload, { onSuccess });
+    create.mutate(payload, { 
+      onSuccess: () => {
+        form.reset();
+        onSuccess();
+      } 
+    });
   };
 
   return (
