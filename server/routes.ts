@@ -227,7 +227,6 @@ export async function registerRoutes(
         const totalUnits = order.quantity;
         const batchSize = step.batchSize;
         const batchesNeeded = Math.ceil(totalUnits / batchSize);
-        const totalDuration = batchesNeeded * step.durationMinutes;
         
         const eqRequirements = step.equipmentRequirements || [];
         if (eqRequirements.length === 0) continue;
@@ -236,7 +235,7 @@ export async function registerRoutes(
         // This is a simplified version: Find the max availability across all required machines
         
         let startWindow = new Date(currentBatchStartTime);
-        let selectedUnits: { eqId: number, unitIdx: number }[] = [];
+        let selectedUnits: { eqId: number, unitIdx: number, durationMinutes: number | null }[] = [];
 
         // We need to find a single unit for each required equipment type
         // This is a greedy search for simplicity
@@ -256,8 +255,22 @@ export async function registerRoutes(
           if (slots[earliestSlotIdx] > machinesReadyAt) {
             machinesReadyAt = slots[earliestSlotIdx];
           }
-          selectedUnits.push({ eqId, unitIdx: earliestSlotIdx });
+          selectedUnits.push({ eqId, unitIdx: earliestSlotIdx, durationMinutes: req.durationMinutes ?? null });
         }
+
+        // Calculate duration: use equipment-specific duration if available, otherwise use step default
+        // If multiple equipment have specific durations, use the maximum (all must complete)
+        let effectiveDuration = step.durationMinutes;
+        const equipmentDurations = selectedUnits
+          .filter(u => u.durationMinutes !== null)
+          .map(u => u.durationMinutes as number);
+        
+        if (equipmentDurations.length > 0) {
+          // Use the maximum equipment-specific duration (limiting factor)
+          effectiveDuration = Math.max(...equipmentDurations);
+        }
+        
+        const totalDuration = batchesNeeded * effectiveDuration;
 
         let actualStartTime = new Date(machinesReadyAt);
         let actualEndTime = addMinutes(actualStartTime, totalDuration);
