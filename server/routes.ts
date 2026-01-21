@@ -92,6 +92,36 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === PART-EQUIPMENT COMPATIBILITY ROUTES ===
+  app.get("/api/parts/:id/compatibility", async (req, res) => {
+    const compatibility = await storage.getPartCompatibility(Number(req.params.id));
+    res.json(compatibility);
+  });
+
+  app.put("/api/parts/:id/compatibility", async (req, res) => {
+    try {
+      const body = z.object({
+        equipmentIds: z.array(z.coerce.number())
+      }).parse(req.body);
+      
+      const compatibility = await storage.setPartCompatibility(Number(req.params.id), body.equipmentIds);
+      res.json(compatibility);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.get("/api/compatibility", async (req, res) => {
+    const compatibility = await storage.getAllPartCompatibility();
+    res.json(compatibility);
+  });
+
   // === STEP ROUTES ===
   app.post(api.steps.create.path, async (req, res) => {
     try {
