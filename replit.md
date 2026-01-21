@@ -47,8 +47,14 @@ The application tracks:
 - **Test Equipment**: Machines/stations with quantity (capacity)
 - **Part Numbers**: Products that need testing
 - **Test Steps**: Sequential steps linking parts to equipment with duration and batch size
-- **Step Equipment**: Join table for multiple equipment options per step
+- **Step Equipment**: Join table for multiple equipment options per step, with optional equipment-specific duration (allows different test times based on which equipment is used, e.g., different ESS Chambers)
 - **Work Orders**: Production orders with quantity, priority, and due dates
+
+### Equipment-Specific Durations
+Each part number can have different test durations depending on which equipment is used. This is configured in the step equipment requirements:
+- When adding/editing a test step, each selected equipment can have its own duration
+- If no duration is specified for an equipment, the step's default duration is used
+- The scheduler uses equipment-specific durations when calculating the production schedule
 
 ### Build System
 - Development: Vite dev server with Express backend
