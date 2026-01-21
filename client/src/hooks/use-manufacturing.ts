@@ -162,8 +162,10 @@ export function useDeleteStep() {
       const res = await fetch(url, { method: api.steps.delete.method });
       if (!res.ok) throw new Error("Failed to delete step");
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [api.parts.get.path, variables.partId] });
+      queryClient.invalidateQueries({ queryKey: [api.parts.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
       toast({ title: "Success", description: "Test step removed" });
     },
   });
