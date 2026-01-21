@@ -3,6 +3,14 @@ import { Layout } from "@/components/Layout";
 import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
+
+const ganttStyles = `
+  .barWrapper text,
+  .bar text,
+  g[class*="bar"] text {
+    display: none !important;
+  }
+`;
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, BarChart3, CalendarDays, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -61,6 +69,7 @@ export default function Dashboard() {
 
   return (
     <Layout>
+      <style>{ganttStyles}</style>
       <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Production Schedule</h1>
