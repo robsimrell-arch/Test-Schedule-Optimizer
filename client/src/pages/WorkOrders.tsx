@@ -28,12 +28,14 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
   const create = useCreateWorkOrder();
   const { data: parts } = useParts();
 
-  const form = useForm<z.infer<typeof insertWorkOrderSchema>>({
+  const form = useForm({
     resolver: zodResolver(insertWorkOrderSchema),
     defaultValues: {
+      partNumberId: undefined,
       quantity: 1,
       priority: 1,
       status: "pending",
+      dueDate: null,
     },
   });
 
@@ -42,20 +44,34 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
     const payload = {
       ...data,
       dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null,
+      status: "pending" // Hardcode status for creation
     };
+    
+    // Convert partNumberId to number if it's a string
+    if (typeof payload.partNumberId === 'string') {
+      payload.partNumberId = parseInt(payload.partNumberId);
+    }
+
     create.mutate(payload, { 
       onSuccess: () => {
         form.reset();
         onSuccess();
-      } 
+      }
     });
   };
+
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
         <Label>Part Number</Label>
-        <Select onValueChange={(val) => form.setValue("partNumberId", parseInt(val))}>
+        <Select 
+          value={form.watch("partNumberId")?.toString() || ""} 
+          onValueChange={(val) => {
+            console.log("Selected part ID:", val);
+            form.setValue("partNumberId", parseInt(val), { shouldValidate: true });
+          }}
+        >
           <SelectTrigger>
             <SelectValue placeholder="Select part..." />
           </SelectTrigger>
@@ -83,7 +99,14 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
 
       <div className="space-y-2">
         <Label>Due Date</Label>
-        <Input type="date" {...form.register("dueDate")} />
+        <Input 
+          type="date" 
+          {...form.register("dueDate")} 
+          onChange={(e) => {
+            const val = e.target.value;
+            form.setValue("dueDate", val || null);
+          }}
+        />
       </div>
 
       <DialogFooter>
