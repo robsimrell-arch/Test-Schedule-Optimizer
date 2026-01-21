@@ -25,9 +25,9 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Search, Settings2, Clock, Box } from "lucide-react";
 import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep } from "@/hooks/use-manufacturing";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertTestEquipmentSchema, insertPartNumberSchema, insertTestStepSchema } from "@shared/routes";
+import { insertTestEquipmentSchema, insertPartNumberSchema } from "@shared/routes";
 import { z } from "zod";
 import {
   Select,
@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // --- FORMS & SCHEMAS ---
 
@@ -110,18 +111,21 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
   const create = useCreateStep();
   const { data: equipment } = useEquipment();
   
-  const form = useForm<z.infer<typeof insertTestStepSchema>>({
-    resolver: zodResolver(insertTestStepSchema),
+  const form = useForm({
     defaultValues: {
       partNumberId: partId,
       stepOrder: 1,
       durationMinutes: 60,
       batchSize: 1,
+      equipmentIds: [] as number[],
     },
   });
 
   const onSubmit = (data: any) => {
-    create.mutate({ ...data, partNumberId: partId }, { onSuccess });
+    create.mutate({ ...data, partNumberId: partId }, { onSuccess: () => {
+      form.reset();
+      onSuccess();
+    } });
   };
 
   if (!equipment) return null;
@@ -129,37 +133,58 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 border p-4 rounded-lg bg-muted/20">
       <h4 className="font-semibold text-sm mb-2">Add New Test Step</h4>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-4">
         <div className="space-y-2">
-          <Label>Test Equipment</Label>
-          <Select onValueChange={(val) => form.setValue("testEquipmentId", parseInt(val))}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select equipment" />
-            </SelectTrigger>
-            <SelectContent>
-              {equipment.map((eq) => (
-                <SelectItem key={eq.id} value={eq.id.toString()}>
-                  {eq.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {form.formState.errors.testEquipmentId && <p className="text-xs text-red-500">Required</p>}
+          <Label>Required Equipment</Label>
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <Controller
+              control={form.control}
+              name="equipmentIds"
+              render={({ field }) => (
+                <>
+                  {equipment.map((eq) => (
+                    <div key={eq.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`eq-${eq.id}`}
+                        checked={field.value.includes(eq.id)}
+                        onCheckedChange={(checked) => {
+                          const current = field.value || [];
+                          if (checked) {
+                            field.onChange([...current, eq.id]);
+                          } else {
+                            field.onChange(current.filter((id) => id !== eq.id));
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor={`eq-${eq.id}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {eq.name}
+                      </label>
+                    </div>
+                  ))}
+                </>
+              )}
+            />
+          </div>
         </div>
-        <div className="space-y-2">
-          <Label>Step Order</Label>
-          <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} />
-        </div>
-        <div className="space-y-2">
-          <Label>Duration (min)</Label>
-          <Input type="number" {...form.register("durationMinutes", { valueAsNumber: true })} />
-        </div>
-        <div className="space-y-2">
-          <Label>Batch Size</Label>
-          <Input type="number" {...form.register("batchSize", { valueAsNumber: true })} />
+        <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label>Step Order</Label>
+            <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} />
+          </div>
+          <div className="space-y-2">
+            <Label>Duration (min)</Label>
+            <Input type="number" {...form.register("durationMinutes", { valueAsNumber: true })} />
+          </div>
+          <div className="space-y-2">
+            <Label>Batch Size</Label>
+            <Input type="number" {...form.register("batchSize", { valueAsNumber: true })} />
+          </div>
         </div>
       </div>
-      <Button size="sm" type="submit" className="w-full" disabled={create.isPending}>
+      <Button size="sm" type="submit" className="w-full" disabled={create.isPending || form.watch("equipmentIds").length === 0}>
         {create.isPending ? "Adding Step..." : "Add Step"}
       </Button>
     </form>
@@ -359,7 +384,9 @@ export default function Inventory() {
                               {step.stepOrder}
                             </div>
                             <div>
-                              <div className="font-medium">{step.equipment?.name || "Unknown Equipment"}</div>
+                              <div className="font-medium">
+                                {step.equipmentRequirements?.map((r: any) => r.equipment.name).join(", ") || "No Equipment Required"}
+                              </div>
                               <div className="text-xs text-muted-foreground flex gap-3 mt-1">
                                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {step.durationMinutes}m</span>
                                 <span className="flex items-center gap-1"><Box className="w-3 h-3" /> Batch: {step.batchSize}</span>
