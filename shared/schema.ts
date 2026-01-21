@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, primaryKey, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -22,8 +22,9 @@ export const testSteps = pgTable("test_steps", {
   id: serial("id").primaryKey(),
   partNumberId: integer("part_number_id").notNull(),
   stepOrder: integer("step_order").notNull(), // Sequence order (1, 2, 3...)
-  durationMinutes: integer("duration_minutes").notNull(), // Time to process one batch
+  durationMinutes: integer("duration_minutes").notNull(), // Time to process one batch (default for non-chamber equipment)
   batchSize: integer("batch_size").notNull().default(1), // Max units per batch
+  chamberRequired: boolean("chamber_required").notNull().default(false), // Does this step need an ESS chamber?
 });
 
 // Join table for multiple equipment per step
@@ -46,10 +47,11 @@ export const workOrders = pgTable("work_orders", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Part-equipment compatibility (which chambers a part can use)
+// Part-chamber compatibility (which chambers a part can use and their durations)
 export const partEquipmentCompatibility = pgTable("part_equipment_compatibility", {
   partNumberId: integer("part_number_id").notNull(),
   equipmentId: integer("equipment_id").notNull(),
+  durationMinutes: integer("duration_minutes"), // Chamber-specific test duration for this part
 }, (t) => ({
   pk: primaryKey({ columns: [t.partNumberId, t.equipmentId] }),
 }));

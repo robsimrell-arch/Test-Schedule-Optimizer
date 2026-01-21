@@ -288,7 +288,7 @@ export function useSchedule() {
 }
 
 // ============================================
-// PART-EQUIPMENT COMPATIBILITY HOOKS
+// PART-CHAMBER COMPATIBILITY HOOKS
 // ============================================
 
 export function usePartCompatibility(partId: number | null) {
@@ -299,7 +299,29 @@ export function usePartCompatibility(partId: number | null) {
       if (!partId) return [];
       const res = await fetch(`/api/parts/${partId}/compatibility`);
       if (!res.ok) throw new Error("Failed to fetch compatibility");
-      return res.json() as Promise<{ partNumberId: number; equipmentId: number }[]>;
+      return res.json() as Promise<{ partNumberId: number; equipmentId: number; durationMinutes: number | null }[]>;
+    },
+  });
+}
+
+export function useAllCompatibility() {
+  return useQuery({
+    queryKey: ["/api/compatibility"],
+    queryFn: async () => {
+      const res = await fetch("/api/compatibility");
+      if (!res.ok) throw new Error("Failed to fetch all compatibility");
+      return res.json() as Promise<{ partNumberId: number; equipmentId: number; durationMinutes: number | null }[]>;
+    },
+  });
+}
+
+export function useChambers() {
+  return useQuery({
+    queryKey: ["/api/chambers"],
+    queryFn: async () => {
+      const res = await fetch("/api/chambers");
+      if (!res.ok) throw new Error("Failed to fetch chambers");
+      return res.json() as Promise<{ id: number; name: string; quantity: number; description: string | null }[]>;
     },
   });
 }
@@ -309,17 +331,18 @@ export function useSetPartCompatibility() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({ partId, equipmentIds }: { partId: number; equipmentIds: number[] }) => {
+    mutationFn: async ({ partId, compatibilities }: { partId: number; compatibilities: { equipmentId: number; durationMinutes?: number | null }[] }) => {
       const res = await fetch(`/api/parts/${partId}/compatibility`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ equipmentIds }),
+        body: JSON.stringify({ compatibilities }),
       });
       if (!res.ok) throw new Error("Failed to update compatibility");
       return res.json();
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/parts", variables.partId, "compatibility"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/compatibility"] });
       queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
       toast({ title: "Success", description: "Chamber compatibility updated" });
     },

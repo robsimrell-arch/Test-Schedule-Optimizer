@@ -58,11 +58,14 @@ Each part number can have different test durations depending on which equipment 
 
 ### Part-Chamber Compatibility
 Each part number can be restricted to specific ESS Chambers:
-- In the Inventory page, select a part to configure which chambers it's compatible with
-- If no chambers are selected, the part can use any ESS Chamber listed in the step
-- The scheduler automatically selects the earliest available compatible chamber
+- The **Chamber Compatibility** tab in Inventory provides a matrix view of all parts vs all ESS Chambers
+- Click checkboxes to configure which chambers each part can use
+- Each compatibility entry can have a custom duration (minutes) for chamber-specific test times
+- Test steps use a "Chamber Required" flag instead of selecting specific chambers
+- The scheduler automatically selects the earliest available compatible chamber based on the compatibility matrix
 - Non-ESS equipment (e.g., Power Supply, ICT) is treated as required (all must be available)
 - ESS Chambers are treated as alternatives (scheduler picks one from compatible options)
+- Backend uses diff-based upsert for race-safe compatibility updates
 
 ### Build System
 - Development: Vite dev server with Express backend

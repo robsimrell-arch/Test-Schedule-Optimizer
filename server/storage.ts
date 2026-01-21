@@ -8,7 +8,7 @@ import {
   type PartNumberWithSteps, type TestStepWithEquipment,
   type InsertStepEquipment, type PartEquipmentCompatibility
 } from "@shared/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, notInArray } from "drizzle-orm";
 
 export interface IStorage {
   // Equipment
@@ -37,10 +37,13 @@ export interface IStorage {
   // Helpers for scheduler
   getAllSteps(): Promise<TestStepWithEquipment[]>;
 
-  // Part-Equipment Compatibility
+  // Part-Chamber Compatibility
   getPartCompatibility(partNumberId: number): Promise<PartEquipmentCompatibility[]>;
-  setPartCompatibility(partNumberId: number, equipmentIds: number[]): Promise<PartEquipmentCompatibility[]>;
+  setPartCompatibility(partNumberId: number, compatibilities: { equipmentId: number; durationMinutes?: number | null }[]): Promise<PartEquipmentCompatibility[]>;
   getAllPartCompatibility(): Promise<PartEquipmentCompatibility[]>;
+  
+  // Chambers (for Chamber Compatibility tab)
+  getChambers(): Promise<TestEquipment[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -228,14 +231,41 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(partEquipmentCompatibility).where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
   }
 
-  async setPartCompatibility(partNumberId: number, equipmentIds: number[]): Promise<PartEquipmentCompatibility[]> {
+  async setPartCompatibility(partNumberId: number, compatibilities: { equipmentId: number; durationMinutes?: number | null }[]): Promise<PartEquipmentCompatibility[]> {
+    // Deduplicate by equipmentId (keep last occurrence)
+    const dedupedMap = new Map<number, { equipmentId: number; durationMinutes: number | null }>();
+    for (const c of compatibilities) {
+      dedupedMap.set(c.equipmentId, { equipmentId: c.equipmentId, durationMinutes: c.durationMinutes ?? null });
+    }
+    const dedupedCompatibilities = Array.from(dedupedMap.values());
+    const equipmentIdsToKeep = dedupedCompatibilities.map(c => c.equipmentId);
+    
     return await db.transaction(async (tx) => {
-      await tx.delete(partEquipmentCompatibility).where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
+      // Delete only rows that are not in the new set (diff-based approach)
+      if (equipmentIdsToKeep.length > 0) {
+        await tx.delete(partEquipmentCompatibility)
+          .where(and(
+            eq(partEquipmentCompatibility.partNumberId, partNumberId),
+            notInArray(partEquipmentCompatibility.equipmentId, equipmentIdsToKeep)
+          ));
+      } else {
+        // If no compatibilities to keep, delete all for this part
+        await tx.delete(partEquipmentCompatibility)
+          .where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
+      }
       
-      if (equipmentIds.length > 0) {
-        await tx.insert(partEquipmentCompatibility).values(
-          equipmentIds.map(equipmentId => ({ partNumberId, equipmentId }))
-        );
+      // Upsert new compatibilities (insert or update duration)
+      for (const c of dedupedCompatibilities) {
+        await tx.insert(partEquipmentCompatibility)
+          .values({ 
+            partNumberId, 
+            equipmentId: c.equipmentId,
+            durationMinutes: c.durationMinutes
+          })
+          .onConflictDoUpdate({
+            target: [partEquipmentCompatibility.partNumberId, partEquipmentCompatibility.equipmentId],
+            set: { durationMinutes: c.durationMinutes }
+          });
       }
       
       return await tx.select().from(partEquipmentCompatibility).where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
@@ -244,6 +274,11 @@ export class DatabaseStorage implements IStorage {
 
   async getAllPartCompatibility(): Promise<PartEquipmentCompatibility[]> {
     return await db.select().from(partEquipmentCompatibility);
+  }
+  
+  async getChambers(): Promise<TestEquipment[]> {
+    const allEquipment = await db.select().from(testEquipment);
+    return allEquipment.filter(eq => eq.name.toLowerCase().includes("chamber"));
   }
 }
 

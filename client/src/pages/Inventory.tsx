@@ -24,7 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil, Thermometer } from "lucide-react";
-import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, usePartCompatibility, useSetPartCompatibility } from "@/hooks/use-manufacturing";
+import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, usePartCompatibility, useSetPartCompatibility, useChambers, useAllCompatibility } from "@/hooks/use-manufacturing";
 import type { TestEquipment } from "@shared/schema";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -155,11 +155,17 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
       stepOrder: 1,
       durationMinutes: 60,
       batchSize: 1,
+      chamberRequired: false,
       equipmentRequirements: [] as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
     },
   });
 
   const equipmentReqs = form.watch("equipmentRequirements");
+  const chamberRequired = form.watch("chamberRequired");
+
+  const nonChamberEquipment = equipment?.filter(eq => 
+    !eq.name.toLowerCase().includes("chamber")
+  ) || [];
 
   const toggleEquipment = (eqId: number, checked: boolean) => {
     const current = form.getValues("equipmentRequirements");
@@ -197,10 +203,28 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 border p-4 rounded-lg bg-muted/20">
       <h4 className="font-semibold text-sm mb-2">Add New Test Step</h4>
       <div className="space-y-4">
+        <div className="p-3 rounded-lg border bg-primary/5 border-primary/20">
+          <div className="flex items-center gap-3">
+            <Checkbox
+              id="chamberRequired"
+              data-testid="checkbox-chamber-required"
+              checked={chamberRequired}
+              onCheckedChange={(checked) => form.setValue("chamberRequired", !!checked)}
+            />
+            <label htmlFor="chamberRequired" className="text-sm font-medium cursor-pointer flex items-center gap-2">
+              <Thermometer className="w-4 h-4 text-primary" />
+              ESS Chamber Required
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground ml-6 mt-1">
+            If checked, the scheduler will assign a compatible ESS Chamber based on the Chamber Compatibility settings.
+          </p>
+        </div>
+
         <div className="space-y-2">
-          <Label>Required Equipment</Label>
+          <Label>Required Equipment (non-chamber)</Label>
           <div className="space-y-2 mt-2">
-            {equipment.map((eq) => {
+            {nonChamberEquipment.map((eq) => {
               const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
               const currentReq = equipmentReqs.find(r => r.equipmentId === eq.id);
               const currentQty = currentReq?.quantityRequired || 1;
@@ -274,7 +298,7 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
           </div>
         </div>
       </div>
-      <Button size="sm" type="submit" className="w-full" disabled={create.isPending || equipmentReqs.length === 0} data-testid="button-add-step">
+      <Button size="sm" type="submit" className="w-full" disabled={create.isPending || (equipmentReqs.length === 0 && !chamberRequired)} data-testid="button-add-step">
         {create.isPending ? "Adding Step..." : "Add Step"}
       </Button>
     </form>
@@ -285,7 +309,9 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
   const update = useUpdateStep();
   const { data: equipment } = useEquipment();
   
-  const initialEquipmentReqs = step.equipmentRequirements?.map((r: any) => ({
+  const initialEquipmentReqs = step.equipmentRequirements?.filter((r: any) => 
+    !r.equipment?.name?.toLowerCase().includes("chamber")
+  ).map((r: any) => ({
     equipmentId: r.equipmentId,
     quantityRequired: r.quantityRequired || 1,
     durationMinutes: r.durationMinutes ?? null
@@ -296,11 +322,17 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
       stepOrder: step.stepOrder,
       durationMinutes: step.durationMinutes,
       batchSize: step.batchSize,
+      chamberRequired: step.chamberRequired || false,
       equipmentRequirements: initialEquipmentReqs as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
     },
   });
 
   const equipmentReqs = form.watch("equipmentRequirements");
+  const chamberRequired = form.watch("chamberRequired");
+
+  const nonChamberEquipment = equipment?.filter(eq => 
+    !eq.name.toLowerCase().includes("chamber")
+  ) || [];
 
   const toggleEquipment = (eqId: number, checked: boolean) => {
     const current = form.getValues("equipmentRequirements");
@@ -333,10 +365,28 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <div className="p-3 rounded-lg border bg-primary/5 border-primary/20">
+        <div className="flex items-center gap-3">
+          <Checkbox
+            id="edit-chamberRequired"
+            data-testid="checkbox-edit-chamber-required"
+            checked={chamberRequired}
+            onCheckedChange={(checked) => form.setValue("chamberRequired", !!checked)}
+          />
+          <label htmlFor="edit-chamberRequired" className="text-sm font-medium cursor-pointer flex items-center gap-2">
+            <Thermometer className="w-4 h-4 text-primary" />
+            ESS Chamber Required
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground ml-6 mt-1">
+          If checked, the scheduler will assign a compatible ESS Chamber.
+        </p>
+      </div>
+
       <div className="space-y-2">
-        <Label>Required Equipment</Label>
+        <Label>Required Equipment (non-chamber)</Label>
         <div className="space-y-2 mt-2 max-h-48 overflow-y-auto">
-          {equipment.map((eq) => {
+          {nonChamberEquipment.map((eq) => {
             const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
             const currentReq = equipmentReqs.find(r => r.equipmentId === eq.id);
             const currentQty = currentReq?.quantityRequired || 1;
@@ -406,7 +456,7 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
         </div>
       </div>
       <DialogFooter>
-        <Button type="submit" disabled={update.isPending || equipmentReqs.length === 0} data-testid="button-save-step">
+        <Button type="submit" disabled={update.isPending || (equipmentReqs.length === 0 && !chamberRequired)} data-testid="button-save-step">
           {update.isPending ? "Saving..." : "Save Changes"}
         </Button>
       </DialogFooter>
@@ -428,10 +478,14 @@ function ChamberCompatibilitySection({ partId }: { partId: number }) {
   const compatibleIds = compatibility?.map(c => c.equipmentId) || [];
   
   const toggleChamber = (eqId: number, checked: boolean) => {
-    const newIds = checked 
-      ? [...compatibleIds, eqId]
-      : compatibleIds.filter(id => id !== eqId);
-    setCompatibility.mutate({ partId, equipmentIds: newIds });
+    const currentCompatibilities = compatibility || [];
+    let newCompatibilities;
+    if (checked) {
+      newCompatibilities = [...currentCompatibilities.map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes })), { equipmentId: eqId, durationMinutes: null }];
+    } else {
+      newCompatibilities = currentCompatibilities.filter(c => c.equipmentId !== eqId).map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes }));
+    }
+    setCompatibility.mutate({ partId, compatibilities: newCompatibilities });
   };
 
   if (essChambers.length === 0) {
@@ -485,6 +539,170 @@ function ChamberCompatibilitySection({ partId }: { partId: number }) {
   );
 }
 
+// --- CHAMBER COMPATIBILITY TAB ---
+
+function ChamberCompatibilityTab() {
+  const { data: parts, isLoading: isLoadingParts } = useParts();
+  const { data: chambers, isLoading: isLoadingChambers } = useChambers();
+  const { data: allCompatibility, isLoading: isLoadingCompat } = useAllCompatibility();
+  const setCompatibility = useSetPartCompatibility();
+
+  const isLoading = isLoadingParts || isLoadingChambers || isLoadingCompat;
+
+  const getCompatibility = (partId: number, chamberId: number) => {
+    return allCompatibility?.find(c => c.partNumberId === partId && c.equipmentId === chamberId);
+  };
+
+  const toggleCompatibility = (partId: number, chamberId: number, isCurrentlyCompatible: boolean) => {
+    const partCompat = allCompatibility?.filter(c => c.partNumberId === partId) || [];
+    let newCompatibilities;
+    
+    if (isCurrentlyCompatible) {
+      newCompatibilities = partCompat
+        .filter(c => c.equipmentId !== chamberId)
+        .map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes }));
+    } else {
+      newCompatibilities = [
+        ...partCompat.map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes })),
+        { equipmentId: chamberId, durationMinutes: null }
+      ];
+    }
+    
+    setCompatibility.mutate({ partId, compatibilities: newCompatibilities });
+  };
+
+  const updateDuration = (partId: number, chamberId: number, duration: number | null) => {
+    const partCompat = allCompatibility?.filter(c => c.partNumberId === partId) || [];
+    const newCompatibilities = partCompat.map(c => ({
+      equipmentId: c.equipmentId,
+      durationMinutes: c.equipmentId === chamberId ? duration : c.durationMinutes
+    }));
+    
+    setCompatibility.mutate({ partId, compatibilities: newCompatibilities });
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-8">
+          <div className="space-y-4">
+            <div className="h-8 bg-muted rounded animate-pulse" />
+            <div className="h-32 bg-muted rounded animate-pulse" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!chambers || chambers.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Thermometer className="w-12 h-12 mx-auto mb-4 opacity-20" />
+          <p className="text-muted-foreground">No ESS Chambers found in the equipment list.</p>
+          <p className="text-xs text-muted-foreground mt-2">Add equipment with "Chamber" in the name to see them here.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Thermometer className="w-5 h-5" /> Chamber Compatibility Matrix
+        </CardTitle>
+        <CardDescription>
+          Configure which parts can be tested in which ESS chambers and set chamber-specific test durations.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-[150px]">Part Number</TableHead>
+                {chambers.map(chamber => (
+                  <TableHead key={chamber.id} className="text-center min-w-[180px]">
+                    {chamber.name}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {parts?.map(part => (
+                <TableRow key={part.id}>
+                  <TableCell className="font-medium">{part.partNumber}</TableCell>
+                  {chambers.map(chamber => {
+                    const compat = getCompatibility(part.id, chamber.id);
+                    const isCompatible = !!compat;
+                    
+                    return (
+                      <TableCell key={chamber.id} className="text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <div
+                            className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                              isCompatible 
+                                ? "bg-primary/10 border-primary" 
+                                : "bg-muted/30 hover:bg-muted/50"
+                            }`}
+                            onClick={() => toggleCompatibility(part.id, chamber.id, isCompatible)}
+                            data-testid={`compat-${part.id}-${chamber.id}`}
+                          >
+                            <Checkbox
+                              checked={isCompatible}
+                              onCheckedChange={() => toggleCompatibility(part.id, chamber.id, isCompatible)}
+                              data-testid={`checkbox-compat-${part.id}-${chamber.id}`}
+                            />
+                            <span className="text-xs">{isCompatible ? "Compatible" : "Not Compatible"}</span>
+                          </div>
+                          
+                          {isCompatible && (
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-muted-foreground">Duration:</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={compat.durationMinutes ?? ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  updateDuration(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
+                                }}
+                                placeholder="Default"
+                                className="w-20 h-7 text-xs"
+                                data-testid={`duration-${part.id}-${chamber.id}`}
+                              />
+                              <span className="text-xs text-muted-foreground">min</span>
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+              {(!parts || parts.length === 0) && (
+                <TableRow>
+                  <TableCell colSpan={1 + (chambers?.length || 0)} className="text-center py-8 text-muted-foreground">
+                    No part numbers defined yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        
+        <div className="mt-4 p-3 bg-muted/30 rounded-lg">
+          <p className="text-sm text-muted-foreground">
+            <strong>How it works:</strong> Check which chambers each part can use. If no chambers are selected, the part can use any chamber.
+            Set chamber-specific durations to override the default test step duration.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // --- MAIN PAGE COMPONENT ---
 
 export default function Inventory() {
@@ -520,6 +738,7 @@ export default function Inventory() {
         <TabsList className="bg-card border border-border/50 p-1 rounded-xl shadow-sm">
           <TabsTrigger value="equipment" className="px-6 py-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Test Equipment</TabsTrigger>
           <TabsTrigger value="parts" className="px-6 py-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Part Numbers</TabsTrigger>
+          <TabsTrigger value="chambers" className="px-6 py-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground" data-testid="tab-chambers">Chamber Compatibility</TabsTrigger>
         </TabsList>
 
         {/* EQUIPMENT TAB */}
@@ -697,47 +916,59 @@ export default function Inventory() {
                     </h3>
                     
                     <div className="space-y-3">
-                      {activePartSteps.sort((a: any, b: any) => a.stepOrder - b.stepOrder).map((step: any) => (
-                        <div key={step.id} className="flex items-center justify-between p-3 rounded-lg border bg-card shadow-sm hover:shadow-md transition-shadow">
-                          <div className="flex items-center gap-4">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm">
-                              {step.stepOrder}
+                      {activePartSteps.sort((a: any, b: any) => a.stepOrder - b.stepOrder).map((step: any) => {
+                        const nonChamberEquipment = step.equipmentRequirements?.filter((r: any) => 
+                          !r.equipment?.name?.toLowerCase().includes("chamber")
+                        ) || [];
+                        
+                        return (
+                          <div key={step.id} className="flex items-center justify-between p-3 rounded-lg border bg-card shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex items-center gap-4">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm">
+                                {step.stepOrder}
+                              </div>
+                              <div>
+                                <div className="font-medium flex items-center gap-2">
+                                  {step.chamberRequired && (
+                                    <Badge variant="outline" className="text-xs border-primary text-primary">
+                                      <Thermometer className="w-3 h-3 mr-1" />
+                                      ESS Chamber
+                                    </Badge>
+                                  )}
+                                  {nonChamberEquipment.map((r: any) => 
+                                    r.quantityRequired > 1 
+                                      ? `${r.equipment?.name} (x${r.quantityRequired})` 
+                                      : r.equipment?.name
+                                  ).filter(Boolean).join(", ") || (step.chamberRequired ? "" : "No Equipment Required")}
+                                </div>
+                                <div className="text-xs text-muted-foreground flex gap-3 mt-1">
+                                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {step.durationMinutes}m</span>
+                                  <span className="flex items-center gap-1"><Box className="w-3 h-3" /> Batch: {step.batchSize}</span>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <div className="font-medium">
-                                {step.equipmentRequirements?.map((r: any) => 
-                                  r.quantityRequired > 1 
-                                    ? `${r.equipment?.name} (x${r.quantityRequired})` 
-                                    : r.equipment?.name
-                                ).filter(Boolean).join(", ") || "No Equipment Required"}
-                              </div>
-                              <div className="text-xs text-muted-foreground flex gap-3 mt-1">
-                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {step.durationMinutes}m</span>
-                                <span className="flex items-center gap-1"><Box className="w-3 h-3" /> Batch: {step.batchSize}</span>
-                              </div>
+                            <div className="flex items-center gap-1">
+                              <Button 
+                                variant="ghost" 
+                                size="icon"
+                                onClick={() => setEditingStep(step)}
+                                data-testid={`button-edit-step-${step.id}`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="text-red-500 hover:text-red-600"
+                                onClick={() => deleteStep.mutate({ id: step.id, partId: activePart.id })}
+                                data-testid={`button-delete-step-${step.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              onClick={() => setEditingStep(step)}
-                              data-testid={`button-edit-step-${step.id}`}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="text-red-500 hover:text-red-600"
-                              onClick={() => deleteStep.mutate({ id: step.id, partId: activePart.id })}
-                              data-testid={`button-delete-step-${step.id}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                       
                       {activePartSteps.length === 0 && (
                         <div className="text-center py-8 bg-muted/20 rounded-lg border border-dashed border-muted-foreground/30">
@@ -776,6 +1007,11 @@ export default function Inventory() {
               )}
             </DialogContent>
           </Dialog>
+        </TabsContent>
+
+        {/* CHAMBER COMPATIBILITY TAB */}
+        <TabsContent value="chambers">
+          <ChamberCompatibilityTab />
         </TabsContent>
       </Tabs>
     </Layout>

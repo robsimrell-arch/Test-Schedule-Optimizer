@@ -101,10 +101,13 @@ export async function registerRoutes(
   app.put("/api/parts/:id/compatibility", async (req, res) => {
     try {
       const body = z.object({
-        equipmentIds: z.array(z.coerce.number())
+        compatibilities: z.array(z.object({
+          equipmentId: z.coerce.number(),
+          durationMinutes: z.coerce.number().optional().nullable()
+        }))
       }).parse(req.body);
       
-      const compatibility = await storage.setPartCompatibility(Number(req.params.id), body.equipmentIds);
+      const compatibility = await storage.setPartCompatibility(Number(req.params.id), body.compatibilities);
       res.json(compatibility);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -115,6 +118,12 @@ export async function registerRoutes(
       }
       throw err;
     }
+  });
+  
+  // === CHAMBERS ROUTE ===
+  app.get("/api/chambers", async (req, res) => {
+    const chambers = await storage.getChambers();
+    res.json(chambers);
   });
 
   app.get("/api/compatibility", async (req, res) => {
@@ -135,13 +144,15 @@ export async function registerRoutes(
         durationMinutes: z.coerce.number(),
         batchSize: z.coerce.number(),
         stepOrder: z.coerce.number(),
+        chamberRequired: z.coerce.boolean().default(false),
       }).parse(req.body);
       
       const step = await storage.createStep({
         partNumberId: body.partNumberId,
         durationMinutes: body.durationMinutes,
         batchSize: body.batchSize,
-        stepOrder: body.stepOrder
+        stepOrder: body.stepOrder,
+        chamberRequired: body.chamberRequired
       }, body.equipmentRequirements);
       
       res.status(201).json(step);
@@ -167,6 +178,7 @@ export async function registerRoutes(
         durationMinutes: z.coerce.number().optional(),
         batchSize: z.coerce.number().optional(),
         stepOrder: z.coerce.number().optional(),
+        chamberRequired: z.coerce.boolean().optional(),
         equipmentRequirements: z.array(z.object({
           equipmentId: z.coerce.number(),
           quantityRequired: z.coerce.number().default(1),
@@ -237,22 +249,19 @@ export async function registerRoutes(
     const orders = await storage.getOrders();
     const equipmentList = await storage.getEquipment();
     const allCompatibility = await storage.getAllPartCompatibility();
+    const chambers = await storage.getChambers();
     
-    // Build compatibility lookup: partNumberId -> set of compatible equipmentIds
-    const compatibilityMap: Record<number, Set<number>> = {};
+    // Build compatibility lookup: partNumberId -> array of { equipmentId, durationMinutes }
+    const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null }[]> = {};
     for (const c of allCompatibility) {
       if (!compatibilityMap[c.partNumberId]) {
-        compatibilityMap[c.partNumberId] = new Set();
+        compatibilityMap[c.partNumberId] = [];
       }
-      compatibilityMap[c.partNumberId].add(c.equipmentId);
+      compatibilityMap[c.partNumberId].push({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes });
     }
     
-    // Identify ESS Chambers (equipment with "chamber" in the name)
-    const essChamberIds = new Set(
-      equipmentList
-        .filter(eq => eq.name.toLowerCase().includes("chamber"))
-        .map(eq => eq.id)
-    );
+    // Get all chamber IDs
+    const chamberIds = new Set(chambers.map(c => c.id));
     
     // Heuristic Scheduler Implementation
     // 1. Initialize machine availability
@@ -268,9 +277,9 @@ export async function registerRoutes(
       const part = await storage.getPart(order.partNumberId);
       if (!part || !part.steps) continue;
 
-      // Get compatible chambers for this part (empty set means all chambers allowed)
-      const partCompatibleChambers = compatibilityMap[order.partNumberId] || new Set();
-      const hasCompatibilityRestrictions = partCompatibleChambers.size > 0;
+      // Get compatible chambers for this part (empty array means all chambers allowed)
+      const partCompatibleChambers = compatibilityMap[order.partNumberId] || [];
+      const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
 
       let currentBatchStartTime = new Date();
       
@@ -279,33 +288,20 @@ export async function registerRoutes(
         const batchSize = step.batchSize;
         const batchesNeeded = Math.ceil(totalUnits / batchSize);
         
-        const eqRequirements = step.equipmentRequirements || [];
-        if (eqRequirements.length === 0) continue;
-
-        // Separate ESS chambers from other equipment
-        const essChamberRequirements = eqRequirements.filter(req => essChamberIds.has(req.equipmentId));
-        const nonEssChamberRequirements = eqRequirements.filter(req => !essChamberIds.has(req.equipmentId));
-        
-        // Filter ESS chambers by compatibility
-        let compatibleChambers = essChamberRequirements;
-        if (hasCompatibilityRestrictions && essChamberRequirements.length > 0) {
-          compatibleChambers = essChamberRequirements.filter(req => 
-            partCompatibleChambers.has(req.equipmentId)
-          );
-        }
-        
-        // Skip step if ESS chamber is required but none are compatible
-        if (essChamberRequirements.length > 0 && compatibleChambers.length === 0) continue;
+        // Get non-chamber equipment requirements from step
+        const eqRequirements = (step.equipmentRequirements || []).filter(
+          req => !chamberIds.has(req.equipmentId)
+        );
 
         // Find earliest time where all required equipment are available
-        let startWindow = new Date(currentBatchStartTime);
         let selectedUnits: { eqId: number, unitIdx: number, durationMinutes: number | null }[] = [];
-        let machinesReadyAt = new Date(startWindow);
+        let machinesReadyAt = new Date(currentBatchStartTime);
         
-        // For non-ESS equipment: require all of them
-        for (const req of nonEssChamberRequirements) {
+        // For non-chamber equipment: require all of them
+        for (const req of eqRequirements) {
           const eqId = req.equipmentId;
           const slots = machineAvailability[eqId];
+          if (!slots) continue;
           
           let earliestSlotIdx = 0;
           for(let i=1; i < slots.length; i++) {
@@ -318,13 +314,30 @@ export async function registerRoutes(
           selectedUnits.push({ eqId, unitIdx: earliestSlotIdx, durationMinutes: req.durationMinutes ?? null });
         }
         
-        // For ESS chambers: select ONE from the compatible options (earliest available)
-        let selectedChamber: { eqId: number, unitIdx: number, durationMinutes: number | null, availableAt: Date } | null = null;
+        // Handle chamber requirement based on chamberRequired flag
+        let chamberDuration: number | null = null;
         
-        if (compatibleChambers.length > 0) {
-          for (const req of compatibleChambers) {
-            const eqId = req.equipmentId;
+        if (step.chamberRequired) {
+          // Get compatible chambers for this part, or all chambers if no restrictions
+          let availableChambers: { equipmentId: number; durationMinutes: number | null }[];
+          
+          if (hasCompatibilityRestrictions) {
+            availableChambers = partCompatibleChambers;
+          } else {
+            // No restrictions - use all chambers with no specific duration
+            availableChambers = chambers.map(c => ({ equipmentId: c.id, durationMinutes: null }));
+          }
+          
+          // Skip step if chamber is required but none are available/compatible
+          if (availableChambers.length === 0) continue;
+          
+          // Select ONE chamber from the available options (earliest available)
+          let selectedChamber: { eqId: number, unitIdx: number, durationMinutes: number | null, availableAt: Date } | null = null;
+          
+          for (const chamberInfo of availableChambers) {
+            const eqId = chamberInfo.equipmentId;
             const slots = machineAvailability[eqId];
+            if (!slots) continue;
             
             // Find earliest slot for this chamber
             for(let i=0; i < slots.length; i++) {
@@ -334,7 +347,7 @@ export async function registerRoutes(
                 selectedChamber = { 
                   eqId, 
                   unitIdx: i, 
-                  durationMinutes: req.durationMinutes ?? null,
+                  durationMinutes: chamberInfo.durationMinutes,
                   availableAt: slotAvailableAt 
                 };
               }
@@ -350,8 +363,15 @@ export async function registerRoutes(
               unitIdx: selectedChamber.unitIdx, 
               durationMinutes: selectedChamber.durationMinutes 
             });
+            chamberDuration = selectedChamber.durationMinutes;
+          } else {
+            // No chamber slot found - skip step
+            continue;
           }
         }
+        
+        // Skip if no equipment selected at all
+        if (selectedUnits.length === 0) continue;
         
         // Get equipment names for task display
         const usedEquipmentNames = selectedUnits.map(u => {
@@ -359,16 +379,23 @@ export async function registerRoutes(
           return eq?.name || "Unknown";
         }).join(", ");
 
-        // Calculate duration: use equipment-specific duration if available, otherwise use step default
-        // If multiple equipment have specific durations, use the maximum (all must complete)
+        // Calculate duration: 
+        // - If chamber has specific duration, use that
+        // - Else use equipment-specific durations from step requirements
+        // - Else use step default duration
         let effectiveDuration = step.durationMinutes;
-        const equipmentDurations = selectedUnits
-          .filter(u => u.durationMinutes !== null)
-          .map(u => u.durationMinutes as number);
         
-        if (equipmentDurations.length > 0) {
-          // Use the maximum equipment-specific duration (limiting factor)
-          effectiveDuration = Math.max(...equipmentDurations);
+        if (chamberDuration !== null) {
+          effectiveDuration = chamberDuration;
+        } else {
+          const equipmentDurations = selectedUnits
+            .filter(u => u.durationMinutes !== null)
+            .map(u => u.durationMinutes as number);
+          
+          if (equipmentDurations.length > 0) {
+            // Use the maximum equipment-specific duration (limiting factor)
+            effectiveDuration = Math.max(...equipmentDurations);
+          }
         }
         
         const totalDuration = batchesNeeded * effectiveDuration;
