@@ -321,21 +321,33 @@ export async function registerRoutes(
         let selectedUnits: { eqId: number, unitIdx: number, durationMinutes: number | null }[] = [];
         let machinesReadyAt = new Date(currentBatchStartTime);
         
-        // For non-chamber equipment: require all of them
+        // For non-chamber equipment: require quantityRequired units of each
         for (const req of eqRequirements) {
           const eqId = req.equipmentId;
           const slots = machineAvailability[eqId];
           if (!slots) continue;
           
-          let earliestSlotIdx = 0;
-          for(let i=1; i < slots.length; i++) {
-            if (slots[i] < slots[earliestSlotIdx]) earliestSlotIdx = i;
+          const unitsNeeded = req.quantityRequired || 1;
+          
+          // Sort slot indices by availability time to find the N earliest
+          const slotIndices = slots.map((time, idx) => ({ idx, time }))
+            .sort((a, b) => a.time.getTime() - b.time.getTime());
+          
+          // Take the first unitsNeeded slots
+          const selectedSlots = slotIndices.slice(0, Math.min(unitsNeeded, slots.length));
+          
+          // The time when all required units are ready is when the last of them becomes available
+          if (selectedSlots.length > 0) {
+            const lastSlotTime = selectedSlots[selectedSlots.length - 1].time;
+            if (lastSlotTime > machinesReadyAt) {
+              machinesReadyAt = lastSlotTime;
+            }
           }
           
-          if (slots[earliestSlotIdx] > machinesReadyAt) {
-            machinesReadyAt = slots[earliestSlotIdx];
+          // Add all selected units
+          for (const slot of selectedSlots) {
+            selectedUnits.push({ eqId, unitIdx: slot.idx, durationMinutes: req.durationMinutes ?? null });
           }
-          selectedUnits.push({ eqId, unitIdx: earliestSlotIdx, durationMinutes: req.durationMinutes ?? null });
         }
         
         // Handle chamber requirement based on chamberRequired flag
