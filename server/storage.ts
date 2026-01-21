@@ -50,8 +50,22 @@ export class DatabaseStorage implements IStorage {
     await db.delete(testEquipment).where(eq(testEquipment.id, id));
   }
 
-  async getParts(): Promise<PartNumber[]> {
-    return await db.select().from(partNumbers);
+  async getParts(): Promise<PartNumberWithSteps[]> {
+    const parts = await db.query.partNumbers.findMany({
+      with: {
+        steps: {
+          with: {
+            equipmentRequirements: {
+              with: {
+                equipment: true
+              }
+            }
+          },
+          orderBy: (steps, { asc }) => [asc(steps.stepOrder)]
+        }
+      }
+    });
+    return parts as PartNumberWithSteps[];
   }
 
   async getPart(id: number): Promise<PartNumberWithSteps | undefined> {

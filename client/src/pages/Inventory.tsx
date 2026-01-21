@@ -385,7 +385,7 @@ export default function Inventory() {
                             </div>
                             <div>
                               <div className="font-medium">
-                                {step.equipmentRequirements?.map((r: any) => r.equipment.name).join(", ") || "No Equipment Required"}
+                                {step.equipmentRequirements?.map((r: any) => r.equipment?.name).filter(Boolean).join(", ") || "No Equipment Required"}
                               </div>
                               <div className="text-xs text-muted-foreground flex gap-3 mt-1">
                                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {step.durationMinutes}m</span>
