@@ -1,14 +1,14 @@
 import { db } from "./db";
 import {
-  testEquipment, partNumbers, testSteps, stepEquipment, workOrders,
+  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility,
   type TestEquipment, type InsertTestEquipment,
   type PartNumber, type InsertPartNumber,
   type TestStep, type InsertTestStep,
   type WorkOrder, type InsertWorkOrder,
   type PartNumberWithSteps, type TestStepWithEquipment,
-  type InsertStepEquipment
+  type InsertStepEquipment, type PartEquipmentCompatibility
 } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 export interface IStorage {
   // Equipment
@@ -36,6 +36,11 @@ export interface IStorage {
   
   // Helpers for scheduler
   getAllSteps(): Promise<TestStepWithEquipment[]>;
+
+  // Part-Equipment Compatibility
+  getPartCompatibility(partNumberId: number): Promise<PartEquipmentCompatibility[]>;
+  setPartCompatibility(partNumberId: number, equipmentIds: number[]): Promise<PartEquipmentCompatibility[]>;
+  getAllPartCompatibility(): Promise<PartEquipmentCompatibility[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -217,6 +222,28 @@ export class DatabaseStorage implements IStorage {
       }
     });
     return steps as TestStepWithEquipment[];
+  }
+
+  async getPartCompatibility(partNumberId: number): Promise<PartEquipmentCompatibility[]> {
+    return await db.select().from(partEquipmentCompatibility).where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
+  }
+
+  async setPartCompatibility(partNumberId: number, equipmentIds: number[]): Promise<PartEquipmentCompatibility[]> {
+    return await db.transaction(async (tx) => {
+      await tx.delete(partEquipmentCompatibility).where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
+      
+      if (equipmentIds.length > 0) {
+        await tx.insert(partEquipmentCompatibility).values(
+          equipmentIds.map(equipmentId => ({ partNumberId, equipmentId }))
+        );
+      }
+      
+      return await tx.select().from(partEquipmentCompatibility).where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
+    });
+  }
+
+  async getAllPartCompatibility(): Promise<PartEquipmentCompatibility[]> {
+    return await db.select().from(partEquipmentCompatibility);
   }
 }
 
