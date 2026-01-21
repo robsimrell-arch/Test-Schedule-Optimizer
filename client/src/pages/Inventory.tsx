@@ -24,7 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil, Thermometer, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
-import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, usePartCompatibility, useSetPartCompatibility, useChambers, useAllCompatibility } from "@/hooks/use-manufacturing";
+import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, useSetPartCompatibility, useChambers, useAllCompatibility } from "@/hooks/use-manufacturing";
 import type { TestEquipment } from "@shared/schema";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -461,81 +461,6 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
         </Button>
       </DialogFooter>
     </form>
-  );
-}
-
-// --- CHAMBER COMPATIBILITY SECTION ---
-
-function ChamberCompatibilitySection({ partId }: { partId: number }) {
-  const { data: equipment } = useEquipment();
-  const { data: compatibility, isLoading } = usePartCompatibility(partId);
-  const setCompatibility = useSetPartCompatibility();
-  
-  const essChambers = equipment?.filter(eq => 
-    eq.name.toLowerCase().includes("chamber")
-  ) || [];
-  
-  const compatibleIds = compatibility?.map(c => c.equipmentId) || [];
-  
-  const toggleChamber = (eqId: number, checked: boolean) => {
-    const currentCompatibilities = compatibility || [];
-    let newCompatibilities;
-    if (checked) {
-      newCompatibilities = [...currentCompatibilities.map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes })), { equipmentId: eqId, durationMinutes: null }];
-    } else {
-      newCompatibilities = currentCompatibilities.filter(c => c.equipmentId !== eqId).map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes }));
-    }
-    setCompatibility.mutate({ partId, compatibilities: newCompatibilities });
-  };
-
-  if (essChambers.length === 0) {
-    return null;
-  }
-
-  return (
-    <div>
-      <h3 className="text-sm font-semibold mb-4 flex items-center gap-2 text-primary">
-        <Thermometer className="w-4 h-4" /> ESS Chamber Compatibility
-      </h3>
-      <p className="text-xs text-muted-foreground mb-3">
-        Select which ESS Chambers this part can be tested in. If none are selected, the part can use any chamber.
-      </p>
-      
-      {isLoading ? (
-        <div className="h-12 bg-muted rounded animate-pulse" />
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {essChambers.map((eq) => {
-            const isCompatible = compatibleIds.includes(eq.id);
-            return (
-              <div
-                key={eq.id}
-                className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
-                  isCompatible 
-                    ? "bg-primary/10 border-primary" 
-                    : "bg-card hover:bg-muted/50"
-                }`}
-                onClick={() => toggleChamber(eq.id, !isCompatible)}
-                data-testid={`chamber-compat-${eq.id}`}
-              >
-                <Checkbox
-                  checked={isCompatible}
-                  onCheckedChange={(checked) => toggleChamber(eq.id, !!checked)}
-                  data-testid={`checkbox-chamber-${eq.id}`}
-                />
-                <span className="text-sm font-medium">{eq.name}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      
-      {compatibleIds.length === 0 && !isLoading && (
-        <p className="text-xs text-muted-foreground mt-2 italic">
-          No chambers selected - this part can use any available ESS Chamber.
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -1082,10 +1007,6 @@ export default function Inventory() {
                       )}
                     </div>
                   </div>
-
-                  <Separator />
-
-                  <ChamberCompatibilitySection partId={activePart.id} />
 
                   <Separator />
                   
