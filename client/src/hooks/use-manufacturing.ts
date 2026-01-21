@@ -286,3 +286,42 @@ export function useSchedule() {
     },
   });
 }
+
+// ============================================
+// PART-EQUIPMENT COMPATIBILITY HOOKS
+// ============================================
+
+export function usePartCompatibility(partId: number | null) {
+  return useQuery({
+    queryKey: ["/api/parts", partId, "compatibility"],
+    enabled: !!partId,
+    queryFn: async () => {
+      if (!partId) return [];
+      const res = await fetch(`/api/parts/${partId}/compatibility`);
+      if (!res.ok) throw new Error("Failed to fetch compatibility");
+      return res.json() as Promise<{ partNumberId: number; equipmentId: number }[]>;
+    },
+  });
+}
+
+export function useSetPartCompatibility() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ partId, equipmentIds }: { partId: number; equipmentIds: number[] }) => {
+      const res = await fetch(`/api/parts/${partId}/compatibility`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ equipmentIds }),
+      });
+      if (!res.ok) throw new Error("Failed to update compatibility");
+      return res.json();
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/parts", variables.partId, "compatibility"] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Chamber compatibility updated" });
+    },
+  });
+}
