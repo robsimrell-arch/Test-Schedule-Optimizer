@@ -183,13 +183,6 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
     ));
   };
 
-  const updateEquipmentDuration = (eqId: number, duration: number | null) => {
-    const current = form.getValues("equipmentRequirements");
-    form.setValue("equipmentRequirements", current.map(r => 
-      r.equipmentId === eqId ? { ...r, durationMinutes: duration } : r
-    ));
-  };
-
   const onSubmit = (data: any) => {
     create.mutate({ ...data, partNumberId: partId }, { onSuccess: () => {
       form.reset();
@@ -228,7 +221,6 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
               const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
               const currentReq = equipmentReqs.find(r => r.equipmentId === eq.id);
               const currentQty = currentReq?.quantityRequired || 1;
-              const currentDuration = currentReq?.durationMinutes ?? "";
               
               return (
                 <div key={eq.id} className="p-2 rounded border bg-card space-y-2">
@@ -259,21 +251,6 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
                           onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
                           className="w-16 h-8"
                           data-testid={`input-equipment-qty-${eq.id}`}
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Label className="text-xs text-muted-foreground whitespace-nowrap">Duration (min):</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={currentDuration}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            updateEquipmentDuration(eq.id, val === "" ? null : parseInt(val) || null);
-                          }}
-                          placeholder="Default"
-                          className="w-20 h-8"
-                          data-testid={`input-equipment-duration-${eq.id}`}
                         />
                       </div>
                     </div>
@@ -350,13 +327,6 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
     ));
   };
 
-  const updateEquipmentDuration = (eqId: number, duration: number | null) => {
-    const current = form.getValues("equipmentRequirements");
-    form.setValue("equipmentRequirements", current.map(r => 
-      r.equipmentId === eqId ? { ...r, durationMinutes: duration } : r
-    ));
-  };
-
   const onSubmit = (data: any) => {
     update.mutate({ id: step.id, partId, data }, { onSuccess });
   };
@@ -390,7 +360,6 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
             const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
             const currentReq = equipmentReqs.find(r => r.equipmentId === eq.id);
             const currentQty = currentReq?.quantityRequired || 1;
-            const currentDuration = currentReq?.durationMinutes ?? "";
             
             return (
               <div key={eq.id} className="p-2 rounded border bg-card space-y-2">
@@ -417,21 +386,6 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
                         onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
                         className="w-16 h-8"
                         data-testid={`input-edit-equipment-qty-${eq.id}`}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs text-muted-foreground whitespace-nowrap">Duration (min):</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={currentDuration}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          updateEquipmentDuration(eq.id, val === "" ? null : parseInt(val) || null);
-                        }}
-                        placeholder="Default"
-                        className="w-20 h-8"
-                        data-testid={`input-edit-equipment-duration-${eq.id}`}
                       />
                     </div>
                   </div>

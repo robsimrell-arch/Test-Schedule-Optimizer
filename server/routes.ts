@@ -380,22 +380,12 @@ export async function registerRoutes(
         }).join(", ");
 
         // Calculate duration: 
-        // - If chamber has specific duration, use that
-        // - Else use equipment-specific durations from step requirements
+        // - If chamberRequired and chamber has specific duration, use that
         // - Else use step default duration
         let effectiveDuration = step.durationMinutes;
         
-        if (chamberDuration !== null) {
+        if (step.chamberRequired && chamberDuration !== null) {
           effectiveDuration = chamberDuration;
-        } else {
-          const equipmentDurations = selectedUnits
-            .filter(u => u.durationMinutes !== null)
-            .map(u => u.durationMinutes as number);
-          
-          if (equipmentDurations.length > 0) {
-            // Use the maximum equipment-specific duration (limiting factor)
-            effectiveDuration = Math.max(...equipmentDurations);
-          }
         }
         
         const totalDuration = batchesNeeded * effectiveDuration;
