@@ -167,6 +167,7 @@ export const api = {
             workOrderId: z.number(),
             partNumber: z.string(),
             stepId: z.number(),
+            stepOrder: z.number(),
             equipmentIds: z.array(z.number()),
             equipmentNames: z.string(),
             startTime: z.string(),
