@@ -3,9 +3,79 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { api, errorSchemas } from "@shared/routes";
 import { z } from "zod";
-import { addMinutes, formatISO } from "date-fns";
+import { addMinutes, formatISO, setHours, setMinutes, setSeconds, setMilliseconds, addDays, isBefore, isAfter } from "date-fns";
 import { seedDatabase } from "./seed";
 import type { ScheduledTask, ScheduleResponse } from "@shared/schema";
+
+// Shift configuration
+const SHIFT_START_HOUR = 6; // 6 AM
+const HOURS_PER_SHIFT = 8;
+
+// Helper: Get the next available working time based on shift schedule
+function getNextWorkingTime(date: Date, shifts: 1 | 2): Date {
+  const hoursPerDay = shifts * HOURS_PER_SHIFT; // 8 or 16 hours
+  const shiftEndHour = SHIFT_START_HOUR + hoursPerDay; // 14 (2pm) or 22 (10pm)
+  
+  let result = new Date(date);
+  const currentHour = result.getHours();
+  
+  // If before shift start, move to shift start
+  if (currentHour < SHIFT_START_HOUR) {
+    result = setHours(result, SHIFT_START_HOUR);
+    result = setMinutes(result, 0);
+    result = setSeconds(result, 0);
+    result = setMilliseconds(result, 0);
+    return result;
+  }
+  
+  // If after shift end, move to next day's shift start
+  if (currentHour >= shiftEndHour) {
+    result = addDays(result, 1);
+    result = setHours(result, SHIFT_START_HOUR);
+    result = setMinutes(result, 0);
+    result = setSeconds(result, 0);
+    result = setMilliseconds(result, 0);
+    return result;
+  }
+  
+  // Within working hours
+  return result;
+}
+
+// Helper: Add working minutes (skipping non-working hours)
+function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2): Date {
+  const hoursPerDay = shifts * HOURS_PER_SHIFT;
+  const minutesPerDay = hoursPerDay * 60;
+  const shiftEndHour = SHIFT_START_HOUR + hoursPerDay;
+  
+  // Ensure we start at a valid working time
+  let current = getNextWorkingTime(startDate, shifts);
+  let remainingMinutes = minutes;
+  
+  while (remainingMinutes > 0) {
+    const currentHour = current.getHours();
+    const currentMinute = current.getMinutes();
+    
+    // Calculate minutes left in current day's shift
+    const minutesUntilEndOfShift = (shiftEndHour * 60) - (currentHour * 60 + currentMinute);
+    
+    if (remainingMinutes <= minutesUntilEndOfShift) {
+      // Can complete within today's shift
+      current = addMinutes(current, remainingMinutes);
+      remainingMinutes = 0;
+    } else {
+      // Use up today's remaining shift time and move to next day
+      remainingMinutes -= minutesUntilEndOfShift;
+      current = addDays(current, 1);
+      current = setHours(current, SHIFT_START_HOUR);
+      current = setMinutes(current, 0);
+      current = setSeconds(current, 0);
+      current = setMilliseconds(current, 0);
+    }
+  }
+  
+  return current;
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -270,6 +340,10 @@ export async function registerRoutes(
 
   // === SCHEDULER LOGIC ===
   app.get(api.schedule.calculate.path, async (req, res) => {
+    // Parse shifts parameter (1 or 2, default to 2)
+    const shiftsParam = parseInt(req.query.shifts as string) || 2;
+    const shifts: 1 | 2 = shiftsParam === 1 ? 1 : 2;
+    
     const orders = await storage.getOrders();
     const equipmentList = await storage.getEquipment();
     const allCompatibility = await storage.getAllPartCompatibility();
@@ -288,10 +362,13 @@ export async function registerRoutes(
     const chamberIds = new Set(chambers.map(c => c.id));
     
     // Heuristic Scheduler Implementation
-    // 1. Initialize machine availability
+    // 1. Initialize machine availability (start at next working time)
+    const now = new Date();
+    const workingStartTime = getNextWorkingTime(now, shifts);
+    
     const machineAvailability: Record<number, Date[]> = {};
     equipmentList.forEach(eq => {
-      machineAvailability[eq.id] = Array(eq.quantity).fill(new Date()); 
+      machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
     });
 
     const tasks: ScheduledTask[] = [];
@@ -305,7 +382,7 @@ export async function registerRoutes(
       const partCompatibleChambers = compatibilityMap[order.partNumberId] || [];
       const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
 
-      let currentBatchStartTime = new Date();
+      let currentBatchStartTime = new Date(workingStartTime);
       
       for (const step of part.steps) {
         const totalUnits = order.quantity;
@@ -426,8 +503,10 @@ export async function registerRoutes(
         
         const totalDuration = batchesNeeded * effectiveDuration;
 
-        let actualStartTime = new Date(machinesReadyAt);
-        let actualEndTime = addMinutes(actualStartTime, totalDuration);
+        // Ensure start time is within working hours
+        let actualStartTime = getNextWorkingTime(machinesReadyAt, shifts);
+        // Calculate end time accounting for shift hours (skipping non-working hours)
+        let actualEndTime = addWorkingMinutes(actualStartTime, totalDuration, shifts);
 
         tasks.push({
           id: `wo-${order.id}-step-${step.id}`,

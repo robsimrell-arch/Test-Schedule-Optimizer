@@ -67,6 +67,15 @@ Each part number can be restricted to specific ESS Chambers:
 - ESS Chambers are treated as alternatives (scheduler picks one from compatible options)
 - Backend uses diff-based upsert for race-safe compatibility updates
 
+### Shift-Based Scheduling
+The scheduler supports shift-based work hours:
+- **1 Shift (8 hours/day)**: Work scheduled from 6:00 AM to 2:00 PM only
+- **2 Shifts (16 hours/day)**: Work scheduled from 6:00 AM to 10:00 PM
+- Toggle between shift modes using the switch in the Dashboard Timeline header
+- Tasks starting outside working hours are automatically pushed to the next working period
+- Long tasks spanning multiple days correctly skip non-working hours
+- Schedule API accepts `?shifts=1` or `?shifts=2` query parameter (default: 2)
+
 ### Build System
 - Development: Vite dev server with Express backend
 - Production: esbuild bundles server code, Vite builds client to `dist/public`

@@ -4,12 +4,15 @@ import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, BarChart3, CalendarDays } from "lucide-react";
+import { AlertCircle, BarChart3, CalendarDays, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 export default function Dashboard() {
-  const { data: schedule, isLoading, isError } = useSchedule();
+  const [shiftMode, setShiftMode] = useState<1 | 2>(2);
+  const { data: schedule, isLoading, isError } = useSchedule(shiftMode);
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Day);
 
   if (isLoading) {
@@ -119,19 +122,33 @@ export default function Dashboard() {
 
         {/* Gantt Chart Section */}
         <Card className="shadow-lg border-border/60 overflow-hidden">
-          <CardHeader className="border-b bg-muted/20 flex flex-row items-center justify-between">
+          <CardHeader className="border-b bg-muted/20 flex flex-row items-center justify-between gap-4 flex-wrap">
             <div>
               <CardTitle>Timeline</CardTitle>
               <CardDescription>Visual production roadmap</CardDescription>
             </div>
-            <Tabs defaultValue={ViewMode.Day} onValueChange={(v) => setViewMode(v as ViewMode)}>
-              <TabsList>
-                <TabsTrigger value={ViewMode.QuarterDay}>Hour</TabsTrigger>
-                <TabsTrigger value={ViewMode.HalfDay}>12h</TabsTrigger>
-                <TabsTrigger value={ViewMode.Day}>Day</TabsTrigger>
-                <TabsTrigger value={ViewMode.Week}>Week</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex items-center gap-6 flex-wrap">
+              <div className="flex items-center gap-3 bg-background/80 px-3 py-2 rounded-lg border">
+                <Clock className="w-4 h-4 text-muted-foreground" />
+                <Label htmlFor="shift-toggle" className="text-sm font-medium cursor-pointer">
+                  {shiftMode === 1 ? "1 Shift (8h/day)" : "2 Shifts (16h/day)"}
+                </Label>
+                <Switch
+                  id="shift-toggle"
+                  data-testid="switch-shift-mode"
+                  checked={shiftMode === 2}
+                  onCheckedChange={(checked) => setShiftMode(checked ? 2 : 1)}
+                />
+              </div>
+              <Tabs defaultValue={ViewMode.Day} onValueChange={(v) => setViewMode(v as ViewMode)}>
+                <TabsList>
+                  <TabsTrigger value={ViewMode.QuarterDay}>Hour</TabsTrigger>
+                  <TabsTrigger value={ViewMode.HalfDay}>12h</TabsTrigger>
+                  <TabsTrigger value={ViewMode.Day}>Day</TabsTrigger>
+                  <TabsTrigger value={ViewMode.Week}>Week</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
           </CardHeader>
           <div className="p-4 bg-background overflow-x-auto min-h-[500px]">
             {ganttTasks.length > 0 ? (
