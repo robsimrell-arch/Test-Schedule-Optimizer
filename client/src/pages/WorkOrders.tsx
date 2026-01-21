@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Layout } from "@/components/Layout";
-import { useWorkOrders, useCreateWorkOrder, useDeleteWorkOrder, useParts } from "@/hooks/use-manufacturing";
+import { useWorkOrders, useCreateWorkOrder, useUpdateWorkOrder, useDeleteWorkOrder, useParts } from "@/hooks/use-manufacturing";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,10 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { insertWorkOrderSchema } from "@shared/routes";
-import { z } from "zod";
-import { Plus, Trash2, Calendar, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Calendar, AlertCircle, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -30,6 +27,7 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
 
   const form = useForm<any>({
     defaultValues: {
+      workOrderNumber: "",
       partNumberId: "",
       quantity: 1,
       priority: 1,
@@ -44,6 +42,7 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
     }
 
     const payload: any = {
+      workOrderNumber: data.workOrderNumber || null,
       partNumberId: Number(data.partNumberId),
       quantity: Number(data.quantity),
       priority: Number(data.priority),
@@ -66,6 +65,15 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Work Order Number (optional)</Label>
+        <Input 
+          {...form.register("workOrderNumber")} 
+          placeholder="e.g., WO-2024-001"
+          data-testid="input-work-order-number"
+        />
+      </div>
+
       <div className="space-y-2">
         <Label>Part Number</Label>
         <Select 
@@ -131,8 +139,145 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
+function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void }) {
+  const update = useUpdateWorkOrder();
+  const { data: parts } = useParts();
+
+  const form = useForm<any>({
+    defaultValues: {
+      workOrderNumber: order.workOrderNumber || "",
+      partNumberId: order.partNumberId?.toString() || "",
+      quantity: order.quantity || 1,
+      priority: order.priority || 1,
+      status: order.status || "pending",
+      dueDate: order.dueDate ? format(new Date(order.dueDate), "yyyy-MM-dd") : "",
+    },
+  });
+
+  const onSubmit = (data: any) => {
+    if (!data.partNumberId) {
+      alert("Please select a part number");
+      return;
+    }
+
+    const payload: any = {
+      workOrderNumber: data.workOrderNumber || null,
+      partNumberId: Number(data.partNumberId),
+      quantity: Number(data.quantity),
+      priority: Number(data.priority),
+      status: data.status,
+      dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null,
+    };
+
+    update.mutate({ id: order.id, data: payload }, { 
+      onSuccess: () => {
+        onSuccess();
+      },
+      onError: (error: any) => {
+        alert("Failed to update work order: " + (error.message || "Unknown error"));
+      }
+    });
+  };
+
+  const partNumberId = form.watch("partNumberId");
+  const status = form.watch("status");
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Work Order Number (optional)</Label>
+        <Input 
+          {...form.register("workOrderNumber")} 
+          placeholder="e.g., WO-2024-001"
+          data-testid="input-edit-work-order-number"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Part Number</Label>
+        <Select 
+          value={partNumberId} 
+          onValueChange={(val) => form.setValue("partNumberId", val)}
+        >
+          <SelectTrigger data-testid="select-edit-part-number">
+            <SelectValue placeholder="Select part..." />
+          </SelectTrigger>
+          <SelectContent>
+            {parts?.map((p) => (
+              <SelectItem key={p.id} value={p.id.toString()}>
+                {p.partNumber}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Quantity</Label>
+          <Input 
+            type="number" 
+            {...form.register("quantity")} 
+            min={1} 
+            data-testid="input-edit-quantity"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Priority</Label>
+          <Input 
+            type="number" 
+            {...form.register("priority")} 
+            min={1} 
+            max={10} 
+            placeholder="1-10"
+            data-testid="input-edit-priority"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Status</Label>
+        <Select 
+          value={status} 
+          onValueChange={(val) => form.setValue("status", val)}
+        >
+          <SelectTrigger data-testid="select-edit-status">
+            <SelectValue placeholder="Select status..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="scheduled">Scheduled</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Due Date</Label>
+        <Input 
+          type="date" 
+          {...form.register("dueDate")}
+          data-testid="input-edit-due-date"
+        />
+      </div>
+
+      <DialogFooter className="pt-4">
+        <Button 
+          type="submit" 
+          disabled={update.isPending} 
+          className="w-full"
+          data-testid="button-update-work-order"
+        >
+          {update.isPending ? "Updating..." : "Update Work Order"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
 export default function WorkOrders() {
   const [isOpen, setIsOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<any>(null);
   const { data: orders, isLoading } = useWorkOrders();
   const deleteOrder = useDeleteWorkOrder();
 
@@ -143,6 +288,13 @@ export default function WorkOrders() {
       case "pending": return "bg-yellow-100 text-yellow-700 border-yellow-200";
       default: return "bg-gray-100 text-gray-700";
     }
+  };
+
+  const getDisplayId = (order: any) => {
+    if (order.workOrderNumber) {
+      return order.workOrderNumber;
+    }
+    return `WO-${order.id.toString().padStart(4, '0')}`;
   };
 
   return (
@@ -167,6 +319,18 @@ export default function WorkOrders() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Dialog open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Work Order</DialogTitle>
+            <DialogDescription>Update work order details.</DialogDescription>
+          </DialogHeader>
+          {editingOrder && (
+            <EditOrderForm order={editingOrder} onSuccess={() => setEditingOrder(null)} />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Card className="border-border/60 shadow-sm">
         <CardHeader>
@@ -194,7 +358,9 @@ export default function WorkOrders() {
               <TableBody>
                 {orders?.map((order) => (
                   <TableRow key={order.id} className="group">
-                    <TableCell className="font-mono text-xs text-muted-foreground">WO-{order.id.toString().padStart(4, '0')}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {getDisplayId(order)}
+                    </TableCell>
                     <TableCell className="font-medium">{order.partNumber?.partNumber || "Unknown"}</TableCell>
                     <TableCell>{order.quantity} units</TableCell>
                     <TableCell>
@@ -218,16 +384,28 @@ export default function WorkOrders() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted-foreground hover:text-red-500 transition-colors"
-                        onClick={() => {
-                          if (confirm("Delete this work order?")) deleteOrder.mutate(order.id);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted-foreground hover:text-primary transition-colors"
+                          onClick={() => setEditingOrder(order)}
+                          data-testid={`button-edit-order-${order.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted-foreground hover:text-red-500 transition-colors"
+                          onClick={() => {
+                            if (confirm("Delete this work order?")) deleteOrder.mutate(order.id);
+                          }}
+                          data-testid={`button-delete-order-${order.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

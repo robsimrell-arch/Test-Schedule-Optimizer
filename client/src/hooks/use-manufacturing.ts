@@ -254,6 +254,28 @@ export function useCreateWorkOrder() {
   });
 }
 
+export function useUpdateWorkOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await fetch(`/api/orders/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update work order");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Work order updated" });
+    },
+  });
+}
+
 export function useDeleteWorkOrder() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

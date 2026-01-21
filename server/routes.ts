@@ -214,6 +214,7 @@ export async function registerRoutes(
 
   app.post(api.orders.create.path, async (req, res) => {
     try {
+      const workOrderNumber = req.body.workOrderNumber || null;
       const partNumberId = Number(req.body.partNumberId);
       const quantity = Number(req.body.quantity);
       const priority = Number(req.body.priority) || 1;
@@ -225,6 +226,7 @@ export async function registerRoutes(
       }
 
       const order = await storage.createOrder({
+        workOrderNumber,
         partNumberId,
         quantity,
         priority,
@@ -242,6 +244,28 @@ export async function registerRoutes(
   app.delete(api.orders.delete.path, async (req, res) => {
     await storage.deleteOrder(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.put("/api/orders/:id", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const body = req.body;
+      const updated = await storage.updateOrder(id, {
+        workOrderNumber: body.workOrderNumber,
+        partNumberId: body.partNumberId,
+        quantity: body.quantity,
+        priority: body.priority,
+        status: body.status,
+        dueDate: body.dueDate ? new Date(body.dueDate) : null
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Work order not found" });
+      }
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Error updating work order:", err);
+      res.status(500).json({ message: err.message || "Internal server error" });
+    }
   });
 
   // === SCHEDULER LOGIC ===

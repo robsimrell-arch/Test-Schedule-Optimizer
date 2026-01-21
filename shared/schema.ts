@@ -39,6 +39,7 @@ export const stepEquipment = pgTable("step_equipment", {
 
 export const workOrders = pgTable("work_orders", {
   id: serial("id").primaryKey(),
+  workOrderNumber: text("work_order_number"), // User-assigned work order number/identifier
   partNumberId: integer("part_number_id").notNull(),
   quantity: integer("quantity").notNull(), // Total units to produce
   priority: integer("priority").default(1), // Higher number = higher priority

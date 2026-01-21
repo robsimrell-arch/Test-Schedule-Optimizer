@@ -32,6 +32,7 @@ export interface IStorage {
   // Orders
   getOrders(): Promise<(WorkOrder & { partNumber: PartNumber })[]>;
   createOrder(order: InsertWorkOrder): Promise<WorkOrder>;
+  updateOrder(id: number, order: Partial<InsertWorkOrder>): Promise<WorkOrder | undefined>;
   deleteOrder(id: number): Promise<void>;
   
   // Helpers for scheduler
@@ -212,6 +213,11 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOrder(id: number): Promise<void> {
     await db.delete(workOrders).where(eq(workOrders.id, id));
+  }
+
+  async updateOrder(id: number, order: Partial<InsertWorkOrder>): Promise<WorkOrder | undefined> {
+    const [updated] = await db.update(workOrders).set(order).where(eq(workOrders.id, id)).returning();
+    return updated;
   }
 
   async getAllSteps(): Promise<TestStepWithEquipment[]> {
