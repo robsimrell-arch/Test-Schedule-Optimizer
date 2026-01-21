@@ -24,8 +24,8 @@ export interface IStorage {
   deletePart(id: number): Promise<void>;
 
   // Steps
-  createStep(step: InsertTestStep, equipmentRequirements: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment>;
-  updateStep(id: number, step: Partial<InsertTestStep>, equipmentRequirements?: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment | undefined>;
+  createStep(step: InsertTestStep, equipmentRequirements: { equipmentId: number; quantityRequired: number; durationMinutes?: number | null }[]): Promise<TestStepWithEquipment>;
+  updateStep(id: number, step: Partial<InsertTestStep>, equipmentRequirements?: { equipmentId: number; quantityRequired: number; durationMinutes?: number | null }[]): Promise<TestStepWithEquipment | undefined>;
   deleteStep(id: number): Promise<void>;
   getStepsByPartId(partId: number): Promise<TestStepWithEquipment[]>;
 
@@ -103,7 +103,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(partNumbers).where(eq(partNumbers.id, id));
   }
 
-  async createStep(step: InsertTestStep, equipmentRequirements: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment> {
+  async createStep(step: InsertTestStep, equipmentRequirements: { equipmentId: number; quantityRequired: number; durationMinutes?: number | null }[]): Promise<TestStepWithEquipment> {
     return await db.transaction(async (tx) => {
       const [newStep] = await tx.insert(testSteps).values(step).returning();
       
@@ -112,7 +112,8 @@ export class DatabaseStorage implements IStorage {
           equipmentRequirements.map(eq => ({ 
             stepId: newStep.id, 
             equipmentId: eq.equipmentId,
-            quantityRequired: eq.quantityRequired
+            quantityRequired: eq.quantityRequired,
+            durationMinutes: eq.durationMinutes ?? null
           }))
         );
       }
@@ -131,7 +132,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async updateStep(id: number, step: Partial<InsertTestStep>, equipmentRequirements?: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment | undefined> {
+  async updateStep(id: number, step: Partial<InsertTestStep>, equipmentRequirements?: { equipmentId: number; quantityRequired: number; durationMinutes?: number | null }[]): Promise<TestStepWithEquipment | undefined> {
     return await db.transaction(async (tx) => {
       if (Object.keys(step).length > 0) {
         await tx.update(testSteps).set(step).where(eq(testSteps.id, id));
@@ -144,7 +145,8 @@ export class DatabaseStorage implements IStorage {
             equipmentRequirements.map(eqReq => ({ 
               stepId: id, 
               equipmentId: eqReq.equipmentId,
-              quantityRequired: eqReq.quantityRequired
+              quantityRequired: eqReq.quantityRequired,
+              durationMinutes: eqReq.durationMinutes ?? null
             }))
           );
         }
