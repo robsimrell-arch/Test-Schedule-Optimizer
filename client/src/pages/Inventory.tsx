@@ -117,9 +117,27 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
       stepOrder: 1,
       durationMinutes: 60,
       batchSize: 1,
-      equipmentIds: [] as number[],
+      equipmentRequirements: [] as { equipmentId: number; quantityRequired: number }[],
     },
   });
+
+  const equipmentReqs = form.watch("equipmentRequirements");
+
+  const toggleEquipment = (eqId: number, checked: boolean) => {
+    const current = form.getValues("equipmentRequirements");
+    if (checked) {
+      form.setValue("equipmentRequirements", [...current, { equipmentId: eqId, quantityRequired: 1 }]);
+    } else {
+      form.setValue("equipmentRequirements", current.filter(r => r.equipmentId !== eqId));
+    }
+  };
+
+  const updateQuantity = (eqId: number, qty: number) => {
+    const current = form.getValues("equipmentRequirements");
+    form.setValue("equipmentRequirements", current.map(r => 
+      r.equipmentId === eqId ? { ...r, quantityRequired: qty } : r
+    ));
+  };
 
   const onSubmit = (data: any) => {
     create.mutate({ ...data, partNumberId: partId }, { onSuccess: () => {
@@ -136,55 +154,61 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
       <div className="space-y-4">
         <div className="space-y-2">
           <Label>Required Equipment</Label>
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <Controller
-              control={form.control}
-              name="equipmentIds"
-              render={({ field }) => (
-                <>
-                  {equipment.map((eq) => (
-                    <div key={eq.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`eq-${eq.id}`}
-                        checked={field.value.includes(eq.id)}
-                        onCheckedChange={(checked) => {
-                          const current = field.value || [];
-                          if (checked) {
-                            field.onChange([...current, eq.id]);
-                          } else {
-                            field.onChange(current.filter((id) => id !== eq.id));
-                          }
-                        }}
+          <div className="space-y-2 mt-2">
+            {equipment.map((eq) => {
+              const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
+              const currentQty = equipmentReqs.find(r => r.equipmentId === eq.id)?.quantityRequired || 1;
+              
+              return (
+                <div key={eq.id} className="flex items-center gap-3 p-2 rounded border bg-card">
+                  <Checkbox
+                    id={`eq-${eq.id}`}
+                    data-testid={`checkbox-equipment-${eq.id}`}
+                    checked={isSelected}
+                    onCheckedChange={(checked) => toggleEquipment(eq.id, !!checked)}
+                  />
+                  <label
+                    htmlFor={`eq-${eq.id}`}
+                    className="text-sm font-medium leading-none cursor-pointer flex-1"
+                  >
+                    {eq.name}
+                    <span className="text-xs text-muted-foreground ml-2">({eq.quantity} available)</span>
+                  </label>
+                  {isSelected && (
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Qty:</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={eq.quantity}
+                        value={currentQty}
+                        onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-16 h-8"
+                        data-testid={`input-equipment-qty-${eq.id}`}
                       />
-                      <label
-                        htmlFor={`eq-${eq.id}`}
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                      >
-                        {eq.name}
-                      </label>
                     </div>
-                  ))}
-                </>
-              )}
-            />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
         <div className="grid grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label>Step Order</Label>
-            <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} />
+            <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-step-order" />
           </div>
           <div className="space-y-2">
             <Label>Duration (min)</Label>
-            <Input type="number" {...form.register("durationMinutes", { valueAsNumber: true })} />
+            <Input type="number" {...form.register("durationMinutes", { valueAsNumber: true })} data-testid="input-duration" />
           </div>
           <div className="space-y-2">
             <Label>Batch Size</Label>
-            <Input type="number" {...form.register("batchSize", { valueAsNumber: true })} />
+            <Input type="number" {...form.register("batchSize", { valueAsNumber: true })} data-testid="input-batch-size" />
           </div>
         </div>
       </div>
-      <Button size="sm" type="submit" className="w-full" disabled={create.isPending || form.watch("equipmentIds").length === 0}>
+      <Button size="sm" type="submit" className="w-full" disabled={create.isPending || equipmentReqs.length === 0} data-testid="button-add-step">
         {create.isPending ? "Adding Step..." : "Add Step"}
       </Button>
     </form>
@@ -385,7 +409,11 @@ export default function Inventory() {
                             </div>
                             <div>
                               <div className="font-medium">
-                                {step.equipmentRequirements?.map((r: any) => r.equipment?.name).filter(Boolean).join(", ") || "No Equipment Required"}
+                                {step.equipmentRequirements?.map((r: any) => 
+                                  r.quantityRequired > 1 
+                                    ? `${r.equipment?.name} (x${r.quantityRequired})` 
+                                    : r.equipment?.name
+                                ).filter(Boolean).join(", ") || "No Equipment Required"}
                               </div>
                               <div className="text-xs text-muted-foreground flex gap-3 mt-1">
                                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {step.durationMinutes}m</span>
