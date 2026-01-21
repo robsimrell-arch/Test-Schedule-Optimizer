@@ -49,7 +49,7 @@ export default function Dashboard() {
   const ganttTasks: Task[] = schedule.tasks.map((t: any) => ({
     start: new Date(t.startTime),
     end: new Date(t.endTime),
-    name: `${t.partNumber} (${t.equipmentNames})`,
+    name: `${t.partNumber} (Step ${t.stepOrder})`,
     id: t.id,
     type: "task",
     progress: t.progress,

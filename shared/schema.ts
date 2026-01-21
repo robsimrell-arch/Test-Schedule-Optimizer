@@ -147,6 +147,7 @@ export interface ScheduledTask {
   workOrderId: number;
   partNumber: string;
   stepId: number;
+  stepOrder: number; // Step sequence number (1, 2, 3, etc.)
   equipmentIds: number[];
   equipmentNames: string;
   startTime: string; // ISO string

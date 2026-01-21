@@ -513,6 +513,7 @@ export async function registerRoutes(
           workOrderId: order.id,
           partNumber: part.partNumber,
           stepId: step.id,
+          stepOrder: step.stepOrder,
           equipmentIds: selectedUnits.map(u => u.eqId),
           equipmentNames: usedEquipmentNames,
           startTime: formatISO(actualStartTime),
