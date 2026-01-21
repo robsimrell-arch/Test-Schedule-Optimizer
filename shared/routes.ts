@@ -56,6 +56,16 @@ export const api = {
         204: z.void(),
         404: errorSchemas.notFound,
       },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/equipment/:id',
+      input: insertTestEquipmentSchema.partial(),
+      responses: {
+        200: z.custom<typeof testEquipment.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
     }
   },
   parts: {
@@ -107,6 +117,15 @@ export const api = {
       path: '/api/steps/:id',
       responses: {
         204: z.void(),
+        404: errorSchemas.notFound,
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/steps/:id',
+      responses: {
+        200: z.custom<typeof testSteps.$inferSelect>(),
+        400: errorSchemas.validation,
         404: errorSchemas.notFound,
       },
     }

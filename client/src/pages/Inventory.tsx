@@ -23,8 +23,9 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, Search, Settings2, Clock, Box } from "lucide-react";
-import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep } from "@/hooks/use-manufacturing";
+import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil } from "lucide-react";
+import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep } from "@/hooks/use-manufacturing";
+import type { TestEquipment } from "@shared/schema";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTestEquipmentSchema, insertPartNumberSchema } from "@shared/routes";
@@ -71,6 +72,43 @@ function EquipmentForm({ onSuccess }: { onSuccess: () => void }) {
       <DialogFooter>
         <Button type="submit" disabled={create.isPending}>
           {create.isPending ? "Adding..." : "Add Equipment"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function EditEquipmentForm({ equipment, onSuccess }: { equipment: TestEquipment; onSuccess: () => void }) {
+  const update = useUpdateEquipment();
+  const form = useForm({
+    defaultValues: { 
+      name: equipment.name, 
+      quantity: equipment.quantity, 
+      description: equipment.description || "" 
+    },
+  });
+
+  const onSubmit = (data: any) => {
+    update.mutate({ id: equipment.id, data }, { onSuccess });
+  };
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Equipment Name</Label>
+        <Input {...form.register("name")} data-testid="input-edit-equipment-name" />
+      </div>
+      <div className="space-y-2">
+        <Label>Quantity Available</Label>
+        <Input type="number" {...form.register("quantity", { valueAsNumber: true })} data-testid="input-edit-equipment-qty" />
+      </div>
+      <div className="space-y-2">
+        <Label>Description</Label>
+        <Input {...form.register("description")} data-testid="input-edit-equipment-desc" />
+      </div>
+      <DialogFooter>
+        <Button type="submit" disabled={update.isPending} data-testid="button-save-equipment">
+          {update.isPending ? "Saving..." : "Save Changes"}
         </Button>
       </DialogFooter>
     </form>
@@ -215,12 +253,118 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
   );
 }
 
+function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; onSuccess: () => void }) {
+  const update = useUpdateStep();
+  const { data: equipment } = useEquipment();
+  
+  const initialEquipmentReqs = step.equipmentRequirements?.map((r: any) => ({
+    equipmentId: r.equipmentId,
+    quantityRequired: r.quantityRequired || 1
+  })) || [];
+  
+  const form = useForm({
+    defaultValues: {
+      stepOrder: step.stepOrder,
+      durationMinutes: step.durationMinutes,
+      batchSize: step.batchSize,
+      equipmentRequirements: initialEquipmentReqs as { equipmentId: number; quantityRequired: number }[],
+    },
+  });
+
+  const equipmentReqs = form.watch("equipmentRequirements");
+
+  const toggleEquipment = (eqId: number, checked: boolean) => {
+    const current = form.getValues("equipmentRequirements");
+    if (checked) {
+      form.setValue("equipmentRequirements", [...current, { equipmentId: eqId, quantityRequired: 1 }]);
+    } else {
+      form.setValue("equipmentRequirements", current.filter(r => r.equipmentId !== eqId));
+    }
+  };
+
+  const updateQuantity = (eqId: number, qty: number) => {
+    const current = form.getValues("equipmentRequirements");
+    form.setValue("equipmentRequirements", current.map(r => 
+      r.equipmentId === eqId ? { ...r, quantityRequired: qty } : r
+    ));
+  };
+
+  const onSubmit = (data: any) => {
+    update.mutate({ id: step.id, partId, data }, { onSuccess });
+  };
+
+  if (!equipment) return null;
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Required Equipment</Label>
+        <div className="space-y-2 mt-2 max-h-48 overflow-y-auto">
+          {equipment.map((eq) => {
+            const isSelected = equipmentReqs.some(r => r.equipmentId === eq.id);
+            const currentQty = equipmentReqs.find(r => r.equipmentId === eq.id)?.quantityRequired || 1;
+            
+            return (
+              <div key={eq.id} className="flex items-center gap-3 p-2 rounded border bg-card">
+                <Checkbox
+                  id={`edit-eq-${eq.id}`}
+                  data-testid={`checkbox-edit-equipment-${eq.id}`}
+                  checked={isSelected}
+                  onCheckedChange={(checked) => toggleEquipment(eq.id, !!checked)}
+                />
+                <label htmlFor={`edit-eq-${eq.id}`} className="text-sm font-medium leading-none cursor-pointer flex-1">
+                  {eq.name}
+                </label>
+                {isSelected && (
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground">Qty:</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={eq.quantity}
+                      value={currentQty}
+                      onChange={(e) => updateQuantity(eq.id, Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-16 h-8"
+                      data-testid={`input-edit-equipment-qty-${eq.id}`}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+          <Label>Step Order</Label>
+          <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-edit-step-order" />
+        </div>
+        <div className="space-y-2">
+          <Label>Duration (min)</Label>
+          <Input type="number" {...form.register("durationMinutes", { valueAsNumber: true })} data-testid="input-edit-duration" />
+        </div>
+        <div className="space-y-2">
+          <Label>Batch Size</Label>
+          <Input type="number" {...form.register("batchSize", { valueAsNumber: true })} data-testid="input-edit-batch-size" />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="submit" disabled={update.isPending || equipmentReqs.length === 0} data-testid="button-save-step">
+          {update.isPending ? "Saving..." : "Save Changes"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
 // --- MAIN PAGE COMPONENT ---
 
 export default function Inventory() {
   const [selectedPart, setSelectedPart] = useState<number | null>(null);
   const [isEqOpen, setIsEqOpen] = useState(false);
   const [isPartOpen, setIsPartOpen] = useState(false);
+  const [editingEquipment, setEditingEquipment] = useState<TestEquipment | null>(null);
+  const [editingStep, setEditingStep] = useState<any | null>(null);
 
   // Queries
   const { data: equipment, isLoading: isLoadingEq } = useEquipment();
@@ -299,16 +443,27 @@ export default function Inventory() {
                         </TableCell>
                         <TableCell className="text-muted-foreground">{eq.description || "-"}</TableCell>
                         <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => {
-                                if (confirm("Delete this equipment?")) deleteEq.mutate(eq.id);
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => setEditingEquipment(eq)}
+                              data-testid={`button-edit-equipment-${eq.id}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                  if (confirm("Delete this equipment?")) deleteEq.mutate(eq.id);
+                              }}
+                              data-testid={`button-delete-equipment-${eq.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -324,6 +479,19 @@ export default function Inventory() {
               )}
             </CardContent>
           </Card>
+          
+          {/* Edit Equipment Dialog */}
+          <Dialog open={!!editingEquipment} onOpenChange={(open) => !open && setEditingEquipment(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Equipment</DialogTitle>
+                <DialogDescription>Update equipment details.</DialogDescription>
+              </DialogHeader>
+              {editingEquipment && (
+                <EditEquipmentForm equipment={editingEquipment} onSuccess={() => setEditingEquipment(null)} />
+              )}
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* PARTS TAB */}
@@ -421,14 +589,25 @@ export default function Inventory() {
                               </div>
                             </div>
                           </div>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="text-red-500 hover:text-red-600"
-                            onClick={() => deleteStep.mutate({ id: step.id, partId: activePart.id })}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => setEditingStep(step)}
+                              data-testid={`button-edit-step-${step.id}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="text-red-500 hover:text-red-600"
+                              onClick={() => deleteStep.mutate({ id: step.id, partId: activePart.id })}
+                              data-testid={`button-delete-step-${step.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
                       
@@ -452,6 +631,19 @@ export default function Inventory() {
               </div>
             )}
           </Card>
+          
+          {/* Edit Step Dialog */}
+          <Dialog open={!!editingStep} onOpenChange={(open) => !open && setEditingStep(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Test Step</DialogTitle>
+                <DialogDescription>Update step configuration.</DialogDescription>
+              </DialogHeader>
+              {editingStep && activePart && (
+                <EditStepForm step={editingStep} partId={activePart.id} onSuccess={() => setEditingStep(null)} />
+              )}
+            </DialogContent>
+          </Dialog>
         </TabsContent>
       </Tabs>
     </Layout>

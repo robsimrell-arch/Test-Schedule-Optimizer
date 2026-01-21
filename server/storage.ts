@@ -14,6 +14,7 @@ export interface IStorage {
   // Equipment
   getEquipment(): Promise<TestEquipment[]>;
   createEquipment(equipment: InsertTestEquipment): Promise<TestEquipment>;
+  updateEquipment(id: number, equipment: Partial<InsertTestEquipment>): Promise<TestEquipment | undefined>;
   deleteEquipment(id: number): Promise<void>;
 
   // Parts
@@ -23,7 +24,8 @@ export interface IStorage {
   deletePart(id: number): Promise<void>;
 
   // Steps
-  createStep(step: InsertTestStep, equipmentIds: number[]): Promise<TestStepWithEquipment>;
+  createStep(step: InsertTestStep, equipmentRequirements: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment>;
+  updateStep(id: number, step: Partial<InsertTestStep>, equipmentRequirements?: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment | undefined>;
   deleteStep(id: number): Promise<void>;
   getStepsByPartId(partId: number): Promise<TestStepWithEquipment[]>;
 
@@ -48,6 +50,11 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEquipment(id: number): Promise<void> {
     await db.delete(testEquipment).where(eq(testEquipment.id, id));
+  }
+
+  async updateEquipment(id: number, equipment: Partial<InsertTestEquipment>): Promise<TestEquipment | undefined> {
+    const [updated] = await db.update(testEquipment).set(equipment).where(eq(testEquipment.id, id)).returning();
+    return updated;
   }
 
   async getParts(): Promise<PartNumberWithSteps[]> {
@@ -121,6 +128,39 @@ export class DatabaseStorage implements IStorage {
         }
       });
       return result as TestStepWithEquipment;
+    });
+  }
+
+  async updateStep(id: number, step: Partial<InsertTestStep>, equipmentRequirements?: { equipmentId: number; quantityRequired: number }[]): Promise<TestStepWithEquipment | undefined> {
+    return await db.transaction(async (tx) => {
+      if (Object.keys(step).length > 0) {
+        await tx.update(testSteps).set(step).where(eq(testSteps.id, id));
+      }
+      
+      if (equipmentRequirements !== undefined) {
+        await tx.delete(stepEquipment).where(eq(stepEquipment.stepId, id));
+        if (equipmentRequirements.length > 0) {
+          await tx.insert(stepEquipment).values(
+            equipmentRequirements.map(eqReq => ({ 
+              stepId: id, 
+              equipmentId: eqReq.equipmentId,
+              quantityRequired: eqReq.quantityRequired
+            }))
+          );
+        }
+      }
+
+      const result = await tx.query.testSteps.findFirst({
+        where: eq(testSteps.id, id),
+        with: {
+          equipmentRequirements: {
+            with: {
+              equipment: true
+            }
+          }
+        }
+      });
+      return result as TestStepWithEquipment | undefined;
     });
   }
 

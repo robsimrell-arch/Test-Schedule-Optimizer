@@ -58,6 +58,28 @@ export function useDeleteEquipment() {
   });
 }
 
+export function useUpdateEquipment() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<InsertTestEquipment> }) => {
+      const url = buildUrl(api.equipment.update.path, { id });
+      const res = await fetch(url, {
+        method: api.equipment.update.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update equipment");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.equipment.list.path] });
+      toast({ title: "Success", description: "Equipment updated" });
+    },
+  });
+}
+
 // ============================================
 // PART NUMBERS HOOKS
 // ============================================
@@ -167,6 +189,30 @@ export function useDeleteStep() {
       queryClient.invalidateQueries({ queryKey: [api.parts.list.path] });
       queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
       toast({ title: "Success", description: "Test step removed" });
+    },
+  });
+}
+
+export function useUpdateStep() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, partId, data }: { id: number; partId: number; data: any }) => {
+      const url = buildUrl(api.steps.update.path, { id });
+      const res = await fetch(url, {
+        method: api.steps.update.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update step");
+      return { result: await res.json(), partId };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: [api.parts.get.path, data.partId] });
+      queryClient.invalidateQueries({ queryKey: [api.parts.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Test step updated" });
     },
   });
 }

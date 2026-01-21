@@ -42,6 +42,23 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  app.patch(api.equipment.update.path, async (req, res) => {
+    try {
+      const input = api.equipment.update.input.parse(req.body);
+      const updated = await storage.updateEquipment(Number(req.params.id), input);
+      if (!updated) return res.status(404).json({ message: "Equipment not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
   // === PART ROUTES ===
   app.get(api.parts.list.path, async (req, res) => {
     const parts = await storage.getParts();
@@ -111,6 +128,38 @@ export async function registerRoutes(
   app.delete(api.steps.delete.path, async (req, res) => {
     await storage.deleteStep(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.patch(api.steps.update.path, async (req, res) => {
+    try {
+      const body = z.object({
+        durationMinutes: z.coerce.number().optional(),
+        batchSize: z.coerce.number().optional(),
+        stepOrder: z.coerce.number().optional(),
+        equipmentRequirements: z.array(z.object({
+          equipmentId: z.coerce.number(),
+          quantityRequired: z.coerce.number().default(1)
+        })).optional(),
+      }).parse(req.body);
+      
+      const { equipmentRequirements, ...stepFields } = body;
+      const updated = await storage.updateStep(
+        Number(req.params.id), 
+        stepFields, 
+        equipmentRequirements
+      );
+      
+      if (!updated) return res.status(404).json({ message: "Step not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
   });
 
   // === ORDER ROUTES ===
