@@ -46,11 +46,31 @@ export const workOrders = pgTable("work_orders", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Part-equipment compatibility (which chambers a part can use)
+export const partEquipmentCompatibility = pgTable("part_equipment_compatibility", {
+  partNumberId: integer("part_number_id").notNull(),
+  equipmentId: integer("equipment_id").notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.partNumberId, t.equipmentId] }),
+}));
+
 // === RELATIONS ===
 
 export const partNumbersRelations = relations(partNumbers, ({ many }) => ({
   steps: many(testSteps),
   workOrders: many(workOrders),
+  compatibleEquipment: many(partEquipmentCompatibility),
+}));
+
+export const partEquipmentCompatibilityRelations = relations(partEquipmentCompatibility, ({ one }) => ({
+  partNumber: one(partNumbers, {
+    fields: [partEquipmentCompatibility.partNumberId],
+    references: [partNumbers.id],
+  }),
+  equipment: one(testEquipment, {
+    fields: [partEquipmentCompatibility.equipmentId],
+    references: [testEquipment.id],
+  }),
 }));
 
 export const testStepsRelations = relations(testSteps, ({ one, many }) => ({
@@ -81,6 +101,7 @@ export const workOrdersRelations = relations(workOrders, ({ one }) => ({
 
 export const testEquipmentRelations = relations(testEquipment, ({ many }) => ({
   steps: many(stepEquipment),
+  compatibleParts: many(partEquipmentCompatibility),
 }));
 
 // === BASE SCHEMAS ===
@@ -90,6 +111,7 @@ export const insertPartNumberSchema = createInsertSchema(partNumbers).omit({ id:
 export const insertTestStepSchema = createInsertSchema(testSteps).omit({ id: true });
 export const insertStepEquipmentSchema = createInsertSchema(stepEquipment);
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true });
+export const insertPartEquipmentCompatibilitySchema = createInsertSchema(partEquipmentCompatibility);
 
 // === EXPLICIT API CONTRACT TYPES ===
 
@@ -107,6 +129,9 @@ export type InsertStepEquipment = z.infer<typeof insertStepEquipmentSchema>;
 
 export type WorkOrder = typeof workOrders.$inferSelect;
 export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+
+export type PartEquipmentCompatibility = typeof partEquipmentCompatibility.$inferSelect;
+export type InsertPartEquipmentCompatibility = z.infer<typeof insertPartEquipmentCompatibilitySchema>;
 
 // Complex types including relations for the frontend
 export type TestStepWithEquipment = TestStep & { equipmentRequirements: (StepEquipment & { equipment: TestEquipment })[] };
