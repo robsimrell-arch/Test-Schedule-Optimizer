@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, primaryKey } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -21,11 +21,18 @@ export const partNumbers = pgTable("part_numbers", {
 export const testSteps = pgTable("test_steps", {
   id: serial("id").primaryKey(),
   partNumberId: integer("part_number_id").notNull(),
-  testEquipmentId: integer("test_equipment_id").notNull(),
   stepOrder: integer("step_order").notNull(), // Sequence order (1, 2, 3...)
   durationMinutes: integer("duration_minutes").notNull(), // Time to process one batch
   batchSize: integer("batch_size").notNull().default(1), // Max units per batch
 });
+
+// Join table for multiple equipment per step
+export const stepEquipment = pgTable("step_equipment", {
+  stepId: integer("step_id").notNull(),
+  equipmentId: integer("equipment_id").notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.stepId, t.equipmentId] }),
+}));
 
 export const workOrders = pgTable("work_orders", {
   id: serial("id").primaryKey(),
@@ -44,13 +51,21 @@ export const partNumbersRelations = relations(partNumbers, ({ many }) => ({
   workOrders: many(workOrders),
 }));
 
-export const testStepsRelations = relations(testSteps, ({ one }) => ({
+export const testStepsRelations = relations(testSteps, ({ one, many }) => ({
   partNumber: one(partNumbers, {
     fields: [testSteps.partNumberId],
     references: [partNumbers.id],
   }),
+  equipmentRequirements: many(stepEquipment),
+}));
+
+export const stepEquipmentRelations = relations(stepEquipment, ({ one }) => ({
+  step: one(testSteps, {
+    fields: [stepEquipment.stepId],
+    references: [testSteps.id],
+  }),
   equipment: one(testEquipment, {
-    fields: [testSteps.testEquipmentId],
+    fields: [stepEquipment.equipmentId],
     references: [testEquipment.id],
   }),
 }));
@@ -63,7 +78,7 @@ export const workOrdersRelations = relations(workOrders, ({ one }) => ({
 }));
 
 export const testEquipmentRelations = relations(testEquipment, ({ many }) => ({
-  steps: many(testSteps),
+  steps: many(stepEquipment),
 }));
 
 // === BASE SCHEMAS ===
@@ -71,6 +86,7 @@ export const testEquipmentRelations = relations(testEquipment, ({ many }) => ({
 export const insertTestEquipmentSchema = createInsertSchema(testEquipment).omit({ id: true });
 export const insertPartNumberSchema = createInsertSchema(partNumbers).omit({ id: true });
 export const insertTestStepSchema = createInsertSchema(testSteps).omit({ id: true });
+export const insertStepEquipmentSchema = createInsertSchema(stepEquipment);
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
@@ -84,11 +100,15 @@ export type InsertPartNumber = z.infer<typeof insertPartNumberSchema>;
 export type TestStep = typeof testSteps.$inferSelect;
 export type InsertTestStep = z.infer<typeof insertTestStepSchema>;
 
+export type StepEquipment = typeof stepEquipment.$inferSelect;
+export type InsertStepEquipment = z.infer<typeof insertStepEquipmentSchema>;
+
 export type WorkOrder = typeof workOrders.$inferSelect;
 export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
 
 // Complex types including relations for the frontend
-export type PartNumberWithSteps = PartNumber & { steps: (TestStep & { equipment: TestEquipment })[] };
+export type TestStepWithEquipment = TestStep & { equipmentRequirements: (StepEquipment & { equipment: TestEquipment })[] };
+export type PartNumberWithSteps = PartNumber & { steps: TestStepWithEquipment[] };
 export type WorkOrderWithDetails = WorkOrder & { partNumber: PartNumber };
 
 // Schedule Calculation Types
@@ -97,8 +117,8 @@ export interface ScheduledTask {
   workOrderId: number;
   partNumber: string;
   stepId: number;
-  equipmentId: number;
-  equipmentName: string;
+  equipmentIds: number[];
+  equipmentNames: string;
   startTime: string; // ISO string
   endTime: string; // ISO string
   type: "test_run";

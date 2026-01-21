@@ -1,11 +1,12 @@
 import { db } from "./db";
 import {
-  testEquipment, partNumbers, testSteps, workOrders,
+  testEquipment, partNumbers, testSteps, stepEquipment, workOrders,
   type TestEquipment, type InsertTestEquipment,
   type PartNumber, type InsertPartNumber,
   type TestStep, type InsertTestStep,
   type WorkOrder, type InsertWorkOrder,
-  type PartNumberWithSteps
+  type PartNumberWithSteps, type TestStepWithEquipment,
+  type InsertStepEquipment
 } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -22,9 +23,9 @@ export interface IStorage {
   deletePart(id: number): Promise<void>;
 
   // Steps
-  createStep(step: InsertTestStep): Promise<TestStep>;
+  createStep(step: InsertTestStep, equipmentIds: number[]): Promise<TestStepWithEquipment>;
   deleteStep(id: number): Promise<void>;
-  getStepsByPartId(partId: number): Promise<TestStep[]>;
+  getStepsByPartId(partId: number): Promise<TestStepWithEquipment[]>;
 
   // Orders
   getOrders(): Promise<(WorkOrder & { partNumber: PartNumber })[]>;
@@ -32,7 +33,7 @@ export interface IStorage {
   deleteOrder(id: number): Promise<void>;
   
   // Helpers for scheduler
-  getAllSteps(): Promise<(TestStep & { equipment: TestEquipment })[]>;
+  getAllSteps(): Promise<TestStepWithEquipment[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -59,13 +60,17 @@ export class DatabaseStorage implements IStorage {
       with: {
         steps: {
           with: {
-            equipment: true
+            equipmentRequirements: {
+              with: {
+                equipment: true
+              }
+            }
           },
           orderBy: (steps, { asc }) => [asc(steps.stepOrder)]
         }
       }
     });
-    return part;
+    return part as PartNumberWithSteps | undefined;
   }
 
   async createPart(part: InsertPartNumber): Promise<PartNumber> {
@@ -77,17 +82,49 @@ export class DatabaseStorage implements IStorage {
     await db.delete(partNumbers).where(eq(partNumbers.id, id));
   }
 
-  async createStep(step: InsertTestStep): Promise<TestStep> {
-    const [newItem] = await db.insert(testSteps).values(step).returning();
-    return newItem;
+  async createStep(step: InsertTestStep, equipmentIds: number[]): Promise<TestStepWithEquipment> {
+    return await db.transaction(async (tx) => {
+      const [newStep] = await tx.insert(testSteps).values(step).returning();
+      
+      if (equipmentIds.length > 0) {
+        await tx.insert(stepEquipment).values(
+          equipmentIds.map(eqId => ({ stepId: newStep.id, equipmentId: eqId }))
+        );
+      }
+
+      const result = await tx.query.testSteps.findFirst({
+        where: eq(testSteps.id, newStep.id),
+        with: {
+          equipmentRequirements: {
+            with: {
+              equipment: true
+            }
+          }
+        }
+      });
+      return result as TestStepWithEquipment;
+    });
   }
 
   async deleteStep(id: number): Promise<void> {
-    await db.delete(testSteps).where(eq(testSteps.id, id));
+    await db.transaction(async (tx) => {
+      await tx.delete(stepEquipment).where(eq(stepEquipment.stepId, id));
+      await tx.delete(testSteps).where(eq(testSteps.id, id));
+    });
   }
 
-  async getStepsByPartId(partId: number): Promise<TestStep[]> {
-    return await db.select().from(testSteps).where(eq(testSteps.partNumberId, partId));
+  async getStepsByPartId(partId: number): Promise<TestStepWithEquipment[]> {
+    const steps = await db.query.testSteps.findMany({
+      where: eq(testSteps.partNumberId, partId),
+      with: {
+        equipmentRequirements: {
+          with: {
+            equipment: true
+          }
+        }
+      }
+    });
+    return steps as TestStepWithEquipment[];
   }
 
   async getOrders(): Promise<(WorkOrder & { partNumber: PartNumber })[]> {
@@ -108,12 +145,17 @@ export class DatabaseStorage implements IStorage {
     await db.delete(workOrders).where(eq(workOrders.id, id));
   }
 
-  async getAllSteps(): Promise<(TestStep & { equipment: TestEquipment })[]> {
-    return await db.query.testSteps.findMany({
+  async getAllSteps(): Promise<TestStepWithEquipment[]> {
+    const steps = await db.query.testSteps.findMany({
       with: {
-        equipment: true
+        equipmentRequirements: {
+          with: {
+            equipment: true
+          }
+        }
       }
     });
+    return steps as TestStepWithEquipment[];
   }
 }
 

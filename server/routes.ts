@@ -78,15 +78,21 @@ export async function registerRoutes(
   // === STEP ROUTES ===
   app.post(api.steps.create.path, async (req, res) => {
     try {
-      const input = api.steps.create.input.extend({
+      const body = z.object({
         partNumberId: z.coerce.number(),
-        testEquipmentId: z.coerce.number(),
+        equipmentIds: z.array(z.coerce.number()),
         durationMinutes: z.coerce.number(),
         batchSize: z.coerce.number(),
         stepOrder: z.coerce.number(),
       }).parse(req.body);
       
-      const step = await storage.createStep(input);
+      const step = await storage.createStep({
+        partNumberId: body.partNumberId,
+        durationMinutes: body.durationMinutes,
+        batchSize: body.batchSize,
+        stepOrder: body.stepOrder
+      }, body.equipmentIds);
+      
       res.status(201).json(step);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -145,8 +151,6 @@ export async function registerRoutes(
     // 1. Initialize machine availability
     const machineAvailability: Record<number, Date[]> = {};
     equipmentList.forEach(eq => {
-      // Create independent timelines for each "unit" of the same equipment
-      // e.g. if quantity is 2, we have 2 availability slots
       machineAvailability[eq.id] = Array(eq.quantity).fill(new Date()); 
     });
 
@@ -157,66 +161,54 @@ export async function registerRoutes(
       const part = await storage.getPart(order.partNumberId);
       if (!part || !part.steps) continue;
 
-      let currentBatchStartTime = new Date(); // Start "now" (or after previous step)
+      let currentBatchStartTime = new Date();
       
-      // Calculate total batches needed
-      // Logic: Each step might have a DIFFERENT batch size. 
-      // Simplified: We schedule "runs" through the steps.
-      
-      // For each step in the part's process
       for (const step of part.steps) {
         const totalUnits = order.quantity;
         const batchSize = step.batchSize;
         const batchesNeeded = Math.ceil(totalUnits / batchSize);
-        const durationPerBatch = step.durationMinutes;
+        const totalDuration = batchesNeeded * step.durationMinutes;
+        
+        const eqRequirements = step.equipmentRequirements || [];
+        if (eqRequirements.length === 0) continue;
 
-        // Schedule each batch for this step
-        // In reality, batches can flow independently, but let's assume strict sequential flow for the whole order 
-        // OR pipelining? Let's do a simplified pipelining:
-        // All units must finish Step 1 before Step 2? No, usually it's continuous.
-        // Let's model it as: Step N starts after Step N-1 finishes for that specific batch.
+        // Find earliest time where ALL required equipment are available simultaneously
+        // This is a simplified version: Find the max availability across all required machines
         
-        // We will just schedule ONE big block for the whole order on this machine for simplicity of visualization
-        // OR better: Break it down by batch if batchesNeeded is small, or aggregate if large.
-        // Let's aggregate for MVP: Total time on machine = batchesNeeded * durationPerBatch
+        let startWindow = new Date(currentBatchStartTime);
+        let selectedUnits: { eqId: number, unitIdx: number }[] = [];
+
+        // We need to find a single unit for each required equipment type
+        // This is a greedy search for simplicity
         
-        const totalDuration = batchesNeeded * durationPerBatch;
+        let machinesReadyAt = new Date(startWindow);
         
-        // Find earliest available machine unit
-        const machineId = step.testEquipmentId;
-        const availableSlots = machineAvailability[machineId] || [new Date()];
-        
-        // Find the unit that finishes earliest, BUT must be after the previous step for this order completed
-        // Wait, if we aggregate, we assume the whole order moves together (simplification).
-        // Let's assume the order occupies the machine for `totalDuration`.
-        
-        // Find "best" machine unit (earliest available)
-        let bestUnitIndex = 0;
-        let earliestDate = availableSlots[0];
-        
-        for(let i=1; i < availableSlots.length; i++) {
-          if (availableSlots[i] < earliestDate) {
-            earliestDate = availableSlots[i];
-            bestUnitIndex = i;
+        for (const req of eqRequirements) {
+          const eqId = req.equipmentId;
+          const slots = machineAvailability[eqId];
+          
+          // Find earliest slot
+          let earliestSlotIdx = 0;
+          for(let i=1; i < slots.length; i++) {
+            if (slots[i] < slots[earliestSlotIdx]) earliestSlotIdx = i;
           }
+          
+          if (slots[earliestSlotIdx] > machinesReadyAt) {
+            machinesReadyAt = slots[earliestSlotIdx];
+          }
+          selectedUnits.push({ eqId, unitIdx: earliestSlotIdx });
         }
 
-        // The task can start when:
-        // 1. The machine is free (earliestDate)
-        // 2. The previous step for this order is done (currentBatchStartTime)
-        // We take the MAX of these two.
-        
-        let actualStartTime = new Date(Math.max(earliestDate.getTime(), currentBatchStartTime.getTime()));
+        let actualStartTime = new Date(machinesReadyAt);
         let actualEndTime = addMinutes(actualStartTime, totalDuration);
 
-        // Record the task
         tasks.push({
           id: `wo-${order.id}-step-${step.id}`,
           workOrderId: order.id,
           partNumber: part.partNumber,
           stepId: step.id,
-          equipmentId: step.testEquipmentId,
-          equipmentName: step.equipment.name,
+          equipmentIds: selectedUnits.map(u => u.eqId),
+          equipmentNames: eqRequirements.map(r => r.equipment.name).join(", "),
           startTime: formatISO(actualStartTime),
           endTime: formatISO(actualEndTime),
           type: "test_run",
@@ -224,20 +216,18 @@ export async function registerRoutes(
           dependencies: []
         });
 
-        // Update state
-        // The machine is now busy until actualEndTime
-        availableSlots[bestUnitIndex] = actualEndTime;
-        machineAvailability[machineId] = availableSlots;
+        // Update all machines involved
+        for (const unit of selectedUnits) {
+          machineAvailability[unit.eqId][unit.unitIdx] = actualEndTime;
+        }
 
-        // The next step for this order can't start until this step finishes 
-        // (Assuming strictly sequential processing of the whole order for MVP)
         currentBatchStartTime = actualEndTime;
       }
     }
 
     res.json({
       tasks,
-      equipmentUsage: {} // Todo: Calculate stats
+      equipmentUsage: {}
     });
   });
 
