@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil, Thermometer } from "lucide-react";
+import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil, Thermometer, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, usePartCompatibility, useSetPartCompatibility, useChambers, useAllCompatibility } from "@/hooks/use-manufacturing";
 import type { TestEquipment } from "@shared/schema";
 import { useForm, Controller } from "react-hook-form";
@@ -708,16 +708,63 @@ function ChamberCompatibilityTab() {
 
 // --- MAIN PAGE COMPONENT ---
 
+type SortDirection = 'asc' | 'desc';
+type EquipmentSortField = 'name' | 'quantity';
+type PartSortField = 'partNumber' | 'steps';
+
 export default function Inventory() {
   const [selectedPart, setSelectedPart] = useState<number | null>(null);
   const [isEqOpen, setIsEqOpen] = useState(false);
   const [isPartOpen, setIsPartOpen] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState<TestEquipment | null>(null);
   const [editingStep, setEditingStep] = useState<any | null>(null);
+  
+  // Sorting state
+  const [eqSortField, setEqSortField] = useState<EquipmentSortField>('name');
+  const [eqSortDir, setEqSortDir] = useState<SortDirection>('asc');
+  const [partSortField, setPartSortField] = useState<PartSortField>('partNumber');
+  const [partSortDir, setPartSortDir] = useState<SortDirection>('asc');
 
   // Queries
   const { data: equipment, isLoading: isLoadingEq } = useEquipment();
   const { data: parts, isLoading: isLoadingParts } = useParts();
+  
+  // Sorted data
+  const sortedEquipment = equipment?.slice().sort((a, b) => {
+    const dir = eqSortDir === 'asc' ? 1 : -1;
+    if (eqSortField === 'name') {
+      return dir * a.name.localeCompare(b.name);
+    } else {
+      return dir * (a.quantity - b.quantity);
+    }
+  });
+  
+  const sortedParts = parts?.slice().sort((a, b) => {
+    const dir = partSortDir === 'asc' ? 1 : -1;
+    if (partSortField === 'partNumber') {
+      return dir * a.partNumber.localeCompare(b.partNumber);
+    } else {
+      return dir * ((a.steps?.length || 0) - (b.steps?.length || 0));
+    }
+  });
+  
+  const toggleEqSort = (field: EquipmentSortField) => {
+    if (eqSortField === field) {
+      setEqSortDir(eqSortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setEqSortField(field);
+      setEqSortDir('asc');
+    }
+  };
+  
+  const togglePartSort = (field: PartSortField) => {
+    if (partSortField === field) {
+      setPartSortDir(partSortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setPartSortField(field);
+      setPartSortDir('asc');
+    }
+  };
   
   // Mutations
   const deleteEq = useDeleteEquipment();
@@ -778,14 +825,40 @@ export default function Inventory() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Quantity</TableHead>
+                      <TableHead 
+                        className="cursor-pointer select-none hover:bg-muted/50"
+                        onClick={() => toggleEqSort('name')}
+                        data-testid="sort-equipment-name"
+                      >
+                        <div className="flex items-center gap-1">
+                          Name
+                          {eqSortField === 'name' ? (
+                            eqSortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-30" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer select-none hover:bg-muted/50"
+                        onClick={() => toggleEqSort('quantity')}
+                        data-testid="sort-equipment-quantity"
+                      >
+                        <div className="flex items-center gap-1">
+                          Quantity
+                          {eqSortField === 'quantity' ? (
+                            eqSortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 opacity-30" />
+                          )}
+                        </div>
+                      </TableHead>
                       <TableHead>Description</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {equipment?.map((eq) => (
+                    {sortedEquipment?.map((eq) => (
                       <TableRow key={eq.id}>
                         <TableCell className="font-medium">{eq.name}</TableCell>
                         <TableCell>
@@ -817,7 +890,7 @@ export default function Inventory() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {equipment?.length === 0 && (
+                    {sortedEquipment?.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                           No equipment defined yet.
@@ -848,24 +921,53 @@ export default function Inventory() {
         <TabsContent value="parts" className="flex gap-6 items-start flex-col lg:flex-row">
           {/* Part List */}
           <Card className="flex-1 w-full lg:w-1/3">
-            <CardHeader className="flex flex-row items-center justify-between pb-4">
-              <CardTitle className="text-lg">Part Numbers</CardTitle>
-              <Dialog open={isPartOpen} onOpenChange={setIsPartOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="outline"><Plus className="w-4 h-4" /></Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>New Part Number</DialogTitle>
-                  </DialogHeader>
-                  <PartForm onSuccess={() => setIsPartOpen(false)} />
-                </DialogContent>
-              </Dialog>
+            <CardHeader className="pb-4">
+              <div className="flex flex-row items-center justify-between">
+                <CardTitle className="text-lg">Part Numbers</CardTitle>
+                <Dialog open={isPartOpen} onOpenChange={setIsPartOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline"><Plus className="w-4 h-4" /></Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>New Part Number</DialogTitle>
+                    </DialogHeader>
+                    <PartForm onSuccess={() => setIsPartOpen(false)} />
+                  </DialogContent>
+                </Dialog>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-muted-foreground">Sort by:</span>
+                <Button 
+                  variant={partSortField === 'partNumber' ? 'secondary' : 'ghost'} 
+                  size="sm" 
+                  className="h-7 text-xs gap-1"
+                  onClick={() => togglePartSort('partNumber')}
+                  data-testid="sort-parts-name"
+                >
+                  Name
+                  {partSortField === 'partNumber' && (
+                    partSortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                  )}
+                </Button>
+                <Button 
+                  variant={partSortField === 'steps' ? 'secondary' : 'ghost'} 
+                  size="sm" 
+                  className="h-7 text-xs gap-1"
+                  onClick={() => togglePartSort('steps')}
+                  data-testid="sort-parts-steps"
+                >
+                  Steps
+                  {partSortField === 'steps' && (
+                    partSortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                  )}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <ScrollArea className="h-[500px]">
                 <div className="divide-y divide-border">
-                  {parts?.map((part) => (
+                  {sortedParts?.map((part) => (
                     <div 
                       key={part.id}
                       onClick={() => setSelectedPart(part.id)}
@@ -891,7 +993,7 @@ export default function Inventory() {
                       </div>
                     </div>
                   ))}
-                  {parts?.length === 0 && <div className="p-4 text-center text-sm text-muted-foreground">No parts found</div>}
+                  {sortedParts?.length === 0 && <div className="p-4 text-center text-sm text-muted-foreground">No parts found</div>}
                 </div>
               </ScrollArea>
             </CardContent>
