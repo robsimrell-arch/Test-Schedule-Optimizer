@@ -4,62 +4,244 @@ export async function seedDatabase() {
   const existingEquipment = await storage.getEquipment();
   if (existingEquipment.length > 0) return;
 
-  console.log("Seeding database...");
+  console.log("Seeding database with manufacturing equipment and parts...");
 
   // 1. Create Equipment
-  const tester = await storage.createEquipment({ name: "Circuit Tester A", quantity: 2, description: "Standard circuit board tester" });
-  const oven = await storage.createEquipment({ name: "Burn-in Oven", quantity: 1, description: "Heat treatment oven" });
-  const inspection = await storage.createEquipment({ name: "Final Inspection Station", quantity: 3, description: "Manual visual inspection" });
-  const powerSupply = await storage.createEquipment({ name: "Programmable DC Power Supply", quantity: 2, description: "Provides power for testing" });
+  const essTestStation = await storage.createEquipment({ name: "ESS Test Station", quantity: 4, description: "" });
+  const essCableGCU = await storage.createEquipment({ name: "ESS Cable (GCU)", quantity: 12, description: "Cable required to test 1 GCU" });
+  const essCableSCB = await storage.createEquipment({ name: "ESS Cable (SCB)", quantity: 12, description: "Cable required to test 1 SCB" });
+  const essCableCSCP = await storage.createEquipment({ name: "ESS Cable (CSCP)", quantity: 12, description: "Cable required to test 1 SCB" });
+  const essCableGSCP = await storage.createEquipment({ name: "ESS Cable (GSCP)", quantity: 12, description: "Cable required to test 1 GSCP" });
+  const vibration = await storage.createEquipment({ name: "Vibration", quantity: 1, description: "Vibration Test System" });
+  const essChamber1 = await storage.createEquipment({ name: "ESS Chamber 1", quantity: 1, description: "Environmental Stress Screening Chamber 1" });
+  const essChamber2 = await storage.createEquipment({ name: "ESS Chamber 2", quantity: 1, description: "Environmental Stress Screening Chamber 2" });
+  const essChamber3 = await storage.createEquipment({ name: "ESS Chamber 3", quantity: 1, description: "Environmental Stress Screening Chamber 3" });
+  const essCableWildCard = await storage.createEquipment({ name: "ESS Cable (WildCard)", quantity: 12, description: "" });
+  const essCablePowerSupply = await storage.createEquipment({ name: "ESS Cable (Power Supply)", quantity: 12, description: "" });
+  const essCableETDIB = await storage.createEquipment({ name: "ESS Cable (ETDIB)", quantity: 12, description: "Cable required to test 1 ETDIB" });
+  const essCPowerCart = await storage.createEquipment({ name: "ESS-C Power Cart", quantity: 1, description: "Power cart required to test GCU" });
+  const wildcardBackplane = await storage.createEquipment({ name: "Wildcard Backplane", quantity: 14, description: "Backplane required to test Wildcard CCA" });
+  const powerSupplyBackplane = await storage.createEquipment({ name: "Power Supply Backplane", quantity: 14, description: "Backplane required to test Power Supply CCA" });
 
-  // 2. Create Parts
-  const pcb = await storage.createPart({ partNumber: "PCB-101", description: "Main Controller Board" });
-  const sensor = await storage.createPart({ partNumber: "Sensor-X200", description: "High-precision thermal sensor" });
+  // 2. Create Part Numbers
+  const gscp = await storage.createPart({ partNumber: "GSCP", description: "GSCP LRU" });
+  const scb = await storage.createPart({ partNumber: "SCB", description: "SCB LRU" });
+  const cscp = await storage.createPart({ partNumber: "CSCP", description: "CSCP LRU" });
+  const gcu = await storage.createPart({ partNumber: "GCU", description: "GCU LRU" });
+  const etdib = await storage.createPart({ partNumber: "ETDIB", description: "ETDIB LRU" });
+  const wildcardCCA = await storage.createPart({ partNumber: "WildCard CCA", description: "Wildcard Circuit Card" });
+  const powerSupplyCCA = await storage.createPart({ partNumber: "Power Supply CCA", description: "Power Supply Circuit Card" });
 
-  // 3. Create Steps with Multiple Equipment
-  // PCB-101
+  // 3. Create Test Steps with Equipment Requirements
+  // GSCP Steps
   await storage.createStep({ 
-    partNumberId: pcb.id, 
+    partNumberId: gscp.id, 
     stepOrder: 1, 
-    durationMinutes: 5, 
-    batchSize: 1 
-  }, [tester.id, powerSupply.id]); // Requires both Tester and Power Supply
+    durationMinutes: 15, 
+    batchSize: 4,
+    chamberRequired: false,
+    name: "Vibe"
+  }, [
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: essCableGSCP.id, quantityRequired: 4 },
+    { equipmentId: vibration.id, quantityRequired: 1 }
+  ]);
 
   await storage.createStep({ 
-    partNumberId: pcb.id, 
+    partNumberId: gscp.id, 
     stepOrder: 2, 
-    durationMinutes: 60, 
-    batchSize: 10 
-  }, [oven.id]);
+    durationMinutes: 0, 
+    batchSize: 12,
+    chamberRequired: true,
+    name: "Thermal"
+  }, [
+    { equipmentId: essCableGSCP.id, quantityRequired: 12 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 }
+  ]);
 
+  // SCB Steps
   await storage.createStep({ 
-    partNumberId: pcb.id, 
-    stepOrder: 3, 
-    durationMinutes: 2, 
-    batchSize: 1 
-  }, [inspection.id]);
-
-  // Sensor-X200
-  await storage.createStep({ 
-    partNumberId: sensor.id, 
+    partNumberId: scb.id, 
     stepOrder: 1, 
-    durationMinutes: 3, 
-    batchSize: 1 
-  }, [tester.id]);
+    durationMinutes: 15, 
+    batchSize: 2,
+    chamberRequired: false,
+    name: "Vibe"
+  }, [
+    { equipmentId: vibration.id, quantityRequired: 1 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: essCableSCB.id, quantityRequired: 1 }
+  ]);
 
   await storage.createStep({ 
-    partNumberId: sensor.id, 
+    partNumberId: scb.id, 
     stepOrder: 2, 
-    durationMinutes: 2, 
-    batchSize: 1 
-  }, [inspection.id]);
+    durationMinutes: 0, 
+    batchSize: 12,
+    chamberRequired: true,
+    name: "Thermal"
+  }, [
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: essCableSCB.id, quantityRequired: 10 }
+  ]);
 
-  // 4. Create Initial Work Order
+  // CSCP Steps
+  await storage.createStep({ 
+    partNumberId: cscp.id, 
+    stepOrder: 1, 
+    durationMinutes: 15, 
+    batchSize: 2,
+    chamberRequired: false,
+    name: "Vibe"
+  }, [
+    { equipmentId: vibration.id, quantityRequired: 1 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: essCableCSCP.id, quantityRequired: 4 }
+  ]);
+
+  await storage.createStep({ 
+    partNumberId: cscp.id, 
+    stepOrder: 2, 
+    durationMinutes: 0, 
+    batchSize: 12,
+    chamberRequired: true,
+    name: "Thermal"
+  }, [
+    { equipmentId: essCableCSCP.id, quantityRequired: 12 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 }
+  ]);
+
+  // GCU Steps
+  await storage.createStep({ 
+    partNumberId: gcu.id, 
+    stepOrder: 1, 
+    durationMinutes: 15, 
+    batchSize: 2,
+    chamberRequired: false,
+    name: "Vibe"
+  }, [
+    { equipmentId: vibration.id, quantityRequired: 1 },
+    { equipmentId: essCPowerCart.id, quantityRequired: 1 },
+    { equipmentId: essCableGCU.id, quantityRequired: 1 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 }
+  ]);
+
+  await storage.createStep({ 
+    partNumberId: gcu.id, 
+    stepOrder: 2, 
+    durationMinutes: 0, 
+    batchSize: 12,
+    chamberRequired: true
+  }, [
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: essCableGCU.id, quantityRequired: 12 },
+    { equipmentId: essCPowerCart.id, quantityRequired: 1 }
+  ]);
+
+  // ETDIB Steps
+  await storage.createStep({ 
+    partNumberId: etdib.id, 
+    stepOrder: 1, 
+    durationMinutes: 15, 
+    batchSize: 2,
+    chamberRequired: false,
+    name: "Vibe"
+  }, [
+    { equipmentId: essCableETDIB.id, quantityRequired: 1 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: vibration.id, quantityRequired: 1 }
+  ]);
+
+  // WildCard CCA Steps
+  await storage.createStep({ 
+    partNumberId: wildcardCCA.id, 
+    stepOrder: 1, 
+    durationMinutes: 15, 
+    batchSize: 4,
+    chamberRequired: false
+  }, [
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: essCableWildCard.id, quantityRequired: 4 },
+    { equipmentId: wildcardBackplane.id, quantityRequired: 4 },
+    { equipmentId: vibration.id, quantityRequired: 1 }
+  ]);
+
+  await storage.createStep({ 
+    partNumberId: wildcardCCA.id, 
+    stepOrder: 2, 
+    durationMinutes: 0, 
+    batchSize: 12,
+    chamberRequired: true
+  }, [
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: wildcardBackplane.id, quantityRequired: 12 },
+    { equipmentId: essCableWildCard.id, quantityRequired: 12 }
+  ]);
+
+  // Power Supply CCA Steps
+  await storage.createStep({ 
+    partNumberId: powerSupplyCCA.id, 
+    stepOrder: 1, 
+    durationMinutes: 15, 
+    batchSize: 4,
+    chamberRequired: false,
+    name: "Vibe"
+  }, [
+    { equipmentId: essCablePowerSupply.id, quantityRequired: 1 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: powerSupplyBackplane.id, quantityRequired: 1 },
+    { equipmentId: vibration.id, quantityRequired: 1 }
+  ]);
+
+  await storage.createStep({ 
+    partNumberId: powerSupplyCCA.id, 
+    stepOrder: 2, 
+    durationMinutes: 0, 
+    batchSize: 12,
+    chamberRequired: true
+  }, [
+    { equipmentId: powerSupplyBackplane.id, quantityRequired: 1 },
+    { equipmentId: essTestStation.id, quantityRequired: 1 },
+    { equipmentId: essCablePowerSupply.id, quantityRequired: 1 }
+  ]);
+
+  // 4. Set Part-Chamber Compatibility with durations
+  await storage.setPartCompatibility(cscp.id, [
+    { equipmentId: essChamber1.id, durationMinutes: 1360 }
+  ]);
+  await storage.setPartCompatibility(gcu.id, [
+    { equipmentId: essChamber1.id, durationMinutes: 1360 }
+  ]);
+  await storage.setPartCompatibility(gscp.id, [
+    { equipmentId: essChamber2.id, durationMinutes: 1360 },
+    { equipmentId: essChamber3.id, durationMinutes: 1360 }
+  ]);
+  await storage.setPartCompatibility(powerSupplyCCA.id, [
+    { equipmentId: essChamber1.id, durationMinutes: 720 },
+    { equipmentId: essChamber2.id, durationMinutes: 880 },
+    { equipmentId: essChamber3.id, durationMinutes: 1040 }
+  ]);
+  await storage.setPartCompatibility(scb.id, [
+    { equipmentId: essChamber1.id, durationMinutes: 1280 }
+  ]);
+  await storage.setPartCompatibility(wildcardCCA.id, [
+    { equipmentId: essChamber1.id, durationMinutes: 720 }
+  ]);
+
+  // 5. Create Sample Work Orders
   await storage.createOrder({ 
-    partNumberId: pcb.id, 
-    quantity: 25, 
-    priority: 1 
+    partNumberId: gscp.id, 
+    quantity: 30, 
+    priority: 1,
+    dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
   });
 
-  console.log("Database seeded successfully!");
+  await storage.createOrder({ 
+    partNumberId: scb.id, 
+    quantity: 75, 
+    priority: 1,
+    dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+  });
+
+  console.log("Database seeded successfully with manufacturing data!");
 }
