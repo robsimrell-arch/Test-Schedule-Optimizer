@@ -24,7 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil, Thermometer, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
-import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, useSetPartCompatibility, useChambers, useAllCompatibility } from "@/hooks/use-manufacturing";
+import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useUpdatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, useSetPartCompatibility, useChambers, useAllCompatibility } from "@/hooks/use-manufacturing";
 import type { TestEquipment } from "@shared/schema";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -139,6 +139,36 @@ function PartForm({ onSuccess }: { onSuccess: () => void }) {
       <DialogFooter>
         <Button type="submit" disabled={create.isPending}>
           {create.isPending ? "Creating..." : "Create Part Number"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function EditPartForm({ part, onSuccess }: { part: { id: number; partNumber: string; description: string | null }; onSuccess: () => void }) {
+  const update = useUpdatePart();
+  const form = useForm<z.infer<typeof insertPartNumberSchema>>({
+    resolver: zodResolver(insertPartNumberSchema),
+    defaultValues: { partNumber: part.partNumber, description: part.description || "" },
+  });
+
+  const onSubmit = (data: any) => {
+    update.mutate({ id: part.id, data }, { onSuccess });
+  };
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Part Number</Label>
+        <Input {...form.register("partNumber")} placeholder="e.g. PCB-101-REV-A" />
+      </div>
+      <div className="space-y-2">
+        <Label>Description</Label>
+        <Input {...form.register("description")} placeholder="Main controller board..." />
+      </div>
+      <DialogFooter>
+        <Button type="submit" disabled={update.isPending}>
+          {update.isPending ? "Saving..." : "Save Changes"}
         </Button>
       </DialogFooter>
     </form>
@@ -606,6 +636,7 @@ export default function Inventory() {
   const [isEqOpen, setIsEqOpen] = useState(false);
   const [isPartOpen, setIsPartOpen] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState<TestEquipment | null>(null);
+  const [editingPart, setEditingPart] = useState<{ id: number; partNumber: string; description: string | null } | null>(null);
   const [editingStep, setEditingStep] = useState<any | null>(null);
   
   // Sorting state
@@ -874,6 +905,18 @@ export default function Inventory() {
                           className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={(e) => {
                             e.stopPropagation();
+                            setEditingPart({ id: part.id, partNumber: part.partNumber, description: part.description });
+                          }}
+                          data-testid={`button-edit-part-${part.id}`}
+                        >
+                           <Pencil className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             if(confirm("Delete part?")) deletePart.mutate(part.id);
                           }}
                         >
@@ -987,6 +1030,19 @@ export default function Inventory() {
               </div>
             )}
           </Card>
+          
+          {/* Edit Part Dialog */}
+          <Dialog open={!!editingPart} onOpenChange={(open) => !open && setEditingPart(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Part Number</DialogTitle>
+                <DialogDescription>Update part number details.</DialogDescription>
+              </DialogHeader>
+              {editingPart && (
+                <EditPartForm part={editingPart} onSuccess={() => setEditingPart(null)} />
+              )}
+            </DialogContent>
+          </Dialog>
           
           {/* Edit Step Dialog */}
           <Dialog open={!!editingStep} onOpenChange={(open) => !open && setEditingStep(null)}>

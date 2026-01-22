@@ -157,6 +157,15 @@ export async function registerRoutes(
     }
   });
 
+  app.put(api.parts.update.path, async (req, res) => {
+    const input = api.parts.update.input.parse(req.body);
+    const updated = await storage.updatePart(Number(req.params.id), input);
+    if (!updated) {
+      return res.status(404).json({ message: "Part not found" });
+    }
+    res.json(updated);
+  });
+
   app.delete(api.parts.delete.path, async (req, res) => {
     await storage.deletePart(Number(req.params.id));
     res.status(204).send();

@@ -130,6 +130,28 @@ export function useCreatePart() {
   });
 }
 
+export function useUpdatePart() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<InsertPartNumber> }) => {
+      const url = buildUrl(api.parts.update.path, { id });
+      const res = await fetch(url, {
+        method: api.parts.update.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update part");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.parts.list.path] });
+      toast({ title: "Success", description: "Part number updated" });
+    },
+  });
+}
+
 export function useDeletePart() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

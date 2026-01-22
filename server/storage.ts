@@ -21,6 +21,7 @@ export interface IStorage {
   getParts(): Promise<PartNumber[]>;
   getPart(id: number): Promise<PartNumberWithSteps | undefined>;
   createPart(part: InsertPartNumber): Promise<PartNumber>;
+  updatePart(id: number, part: Partial<InsertPartNumber>): Promise<PartNumber | undefined>;
   deletePart(id: number): Promise<void>;
 
   // Steps
@@ -106,6 +107,11 @@ export class DatabaseStorage implements IStorage {
   async createPart(part: InsertPartNumber): Promise<PartNumber> {
     const [newItem] = await db.insert(partNumbers).values(part).returning();
     return newItem;
+  }
+
+  async updatePart(id: number, part: Partial<InsertPartNumber>): Promise<PartNumber | undefined> {
+    const [updated] = await db.update(partNumbers).set(part).where(eq(partNumbers.id, id)).returning();
+    return updated;
   }
 
   async deletePart(id: number): Promise<void> {
