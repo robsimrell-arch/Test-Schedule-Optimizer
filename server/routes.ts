@@ -206,6 +206,7 @@ export async function registerRoutes(
     try {
       const body = z.object({
         partNumberId: z.coerce.number(),
+        name: z.string().optional().nullable(),
         equipmentRequirements: z.array(z.object({
           equipmentId: z.coerce.number(),
           quantityRequired: z.coerce.number().default(1),
@@ -219,6 +220,7 @@ export async function registerRoutes(
       
       const step = await storage.createStep({
         partNumberId: body.partNumberId,
+        name: body.name || null,
         durationMinutes: body.durationMinutes,
         batchSize: body.batchSize,
         stepOrder: body.stepOrder,
@@ -245,6 +247,7 @@ export async function registerRoutes(
   app.patch(api.steps.update.path, async (req, res) => {
     try {
       const body = z.object({
+        name: z.string().optional().nullable(),
         durationMinutes: z.coerce.number().optional(),
         batchSize: z.coerce.number().optional(),
         stepOrder: z.coerce.number().optional(),
@@ -562,6 +565,7 @@ export async function registerRoutes(
         partNumber: task.partNumber,
         stepId: task.stepId,
         stepOrder: task.stepOrder,
+        stepName: task.step.name || undefined,
         equipmentIds: slot!.selectedUnits.map(u => u.eqId),
         equipmentNames: usedEquipmentNames,
         startTime: formatISO(slot!.startTime),

@@ -153,6 +153,7 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
     defaultValues: {
       partNumberId: partId,
       stepOrder: 1,
+      name: "",
       durationMinutes: 60,
       batchSize: 1,
       chamberRequired: false,
@@ -196,6 +197,10 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 border p-4 rounded-lg bg-muted/20">
       <h4 className="font-semibold text-sm mb-2">Add New Test Step</h4>
       <div className="space-y-4">
+        <div className="space-y-2">
+          <Label>Step Name (optional)</Label>
+          <Input {...form.register("name")} placeholder="e.g. Vibration Test, Burn-in..." data-testid="input-step-name" />
+        </div>
         <div className="p-3 rounded-lg border bg-primary/5 border-primary/20">
           <div className="flex items-center gap-3">
             <Checkbox
@@ -297,6 +302,7 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
   const form = useForm({
     defaultValues: {
       stepOrder: step.stepOrder,
+      name: step.name || "",
       durationMinutes: step.durationMinutes,
       batchSize: step.batchSize,
       chamberRequired: step.chamberRequired || false,
@@ -335,6 +341,10 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Step Name (optional)</Label>
+        <Input {...form.register("name")} placeholder="e.g. Vibration Test, Burn-in..." data-testid="input-edit-step-name" />
+      </div>
       <div className="p-3 rounded-lg border bg-primary/5 border-primary/20">
         <div className="flex items-center gap-3">
           <Checkbox
@@ -912,6 +922,9 @@ export default function Inventory() {
                                 {step.stepOrder}
                               </div>
                               <div>
+                                {step.name && (
+                                  <div className="font-semibold text-sm mb-1">{step.name}</div>
+                                )}
                                 <div className="font-medium flex items-center gap-2">
                                   {step.chamberRequired && (
                                     <Badge variant="outline" className="text-xs border-primary text-primary">

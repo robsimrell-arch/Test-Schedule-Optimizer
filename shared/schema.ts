@@ -22,6 +22,7 @@ export const testSteps = pgTable("test_steps", {
   id: serial("id").primaryKey(),
   partNumberId: integer("part_number_id").notNull(),
   stepOrder: integer("step_order").notNull(), // Sequence order (1, 2, 3...)
+  name: text("name"), // Optional step name (e.g., "Vibration Test", "Burn-in")
   durationMinutes: integer("duration_minutes").notNull(), // Time to process one batch (default for non-chamber equipment)
   batchSize: integer("batch_size").notNull().default(1), // Max units per batch
   chamberRequired: boolean("chamber_required").notNull().default(false), // Does this step need an ESS chamber?
@@ -148,6 +149,7 @@ export interface ScheduledTask {
   partNumber: string;
   stepId: number;
   stepOrder: number; // Step sequence number (1, 2, 3, etc.)
+  stepName?: string; // Optional step name (e.g., "Vibration Test")
   equipmentIds: number[];
   equipmentNames: string;
   startTime: string; // ISO string
