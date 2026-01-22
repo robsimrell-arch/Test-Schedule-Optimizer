@@ -54,16 +54,26 @@ export default function Dashboard() {
   }
 
   // Transform tasks for Gantt library
-  const ganttTasks: Task[] = schedule.tasks.map((t: any) => ({
-    start: new Date(t.startTime),
-    end: new Date(t.endTime),
-    name: t.stepName ? `${t.partNumber} - ${t.stepName}` : `${t.partNumber} (Step ${t.stepOrder})`,
-    id: t.id,
-    type: "task",
-    progress: t.progress,
-    isDisabled: true,
-    styles: { progressColor: "#3b82f6", backgroundColor: "#bfdbfe" },
-  }));
+  const ganttTasks: Task[] = schedule.tasks.map((t: any) => {
+    // Extract chamber name from equipment if present
+    const chamberMatch = t.equipmentNames?.match(/ESS Chamber (\d+)/);
+    const chamberSuffix = chamberMatch ? ` [C${chamberMatch[1]}]` : '';
+    
+    let baseName = t.stepName 
+      ? `${t.partNumber} - ${t.stepName}` 
+      : `${t.partNumber} (Step ${t.stepOrder})`;
+    
+    return {
+      start: new Date(t.startTime),
+      end: new Date(t.endTime),
+      name: baseName + chamberSuffix,
+      id: t.id,
+      type: "task",
+      progress: t.progress,
+      isDisabled: true,
+      styles: { progressColor: "#3b82f6", backgroundColor: "#bfdbfe" },
+    };
+  });
 
   const equipmentStats = Object.values(schedule.equipmentUsage || {});
 
