@@ -1,10 +1,15 @@
 import { storage } from "./storage";
 
 export async function seedDatabase() {
-  const existingEquipment = await storage.getEquipment();
-  if (existingEquipment.length > 0) return;
+  try {
+    console.log("Checking if database needs seeding...");
+    const existingEquipment = await storage.getEquipment();
+    if (existingEquipment.length > 0) {
+      console.log(`Database already has ${existingEquipment.length} equipment items, skipping seed.`);
+      return;
+    }
 
-  console.log("Seeding database with manufacturing equipment and parts...");
+    console.log("Database is empty. Seeding with manufacturing equipment and parts...");
 
   // 1. Create Equipment
   const essTestStation = await storage.createEquipment({ name: "ESS Test Station", quantity: 4, description: "" });
@@ -244,4 +249,8 @@ export async function seedDatabase() {
   });
 
   console.log("Database seeded successfully with manufacturing data!");
+  } catch (error) {
+    console.error("Error seeding database:", error);
+    throw error;
+  }
 }
