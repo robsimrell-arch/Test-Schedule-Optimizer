@@ -11,12 +11,33 @@ import type { ScheduledTask, ScheduleResponse } from "@shared/schema";
 const SHIFT_START_HOUR = 6; // 6 AM
 const HOURS_PER_SHIFT = 8;
 
+// Helper: Check if a day is a working day based on work week setting
+function isWorkingDay(date: Date, workDays: 5 | 6 | 7): boolean {
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+  if (workDays === 7) return true; // 7-day week - all days work
+  if (workDays === 6) return dayOfWeek !== 0; // 6-day week - Sunday off
+  return dayOfWeek !== 0 && dayOfWeek !== 6; // 5-day week - Sat/Sun off
+}
+
+// Helper: Move to next working day if current day is not a working day
+function skipToWorkingDay(date: Date, workDays: 5 | 6 | 7): Date {
+  let result = new Date(date);
+  while (!isWorkingDay(result, workDays)) {
+    result = addDays(result, 1);
+  }
+  return result;
+}
+
 // Helper: Get the next available working time based on shift schedule
-function getNextWorkingTime(date: Date, shifts: 1 | 2): Date {
+function getNextWorkingTime(date: Date, shifts: 1 | 2, workDays: 5 | 6 | 7 = 7): Date {
   const hoursPerDay = shifts * HOURS_PER_SHIFT; // 8 or 16 hours
   const shiftEndHour = SHIFT_START_HOUR + hoursPerDay; // 14 (2pm) or 22 (10pm)
   
   let result = new Date(date);
+  
+  // First, skip to a working day
+  result = skipToWorkingDay(result, workDays);
+  
   const currentHour = result.getHours();
   
   // If before shift start, move to shift start
@@ -28,9 +49,10 @@ function getNextWorkingTime(date: Date, shifts: 1 | 2): Date {
     return result;
   }
   
-  // If after shift end, move to next day's shift start
+  // If after shift end, move to next working day's shift start
   if (currentHour >= shiftEndHour) {
     result = addDays(result, 1);
+    result = skipToWorkingDay(result, workDays);
     result = setHours(result, SHIFT_START_HOUR);
     result = setMinutes(result, 0);
     result = setSeconds(result, 0);
@@ -42,14 +64,14 @@ function getNextWorkingTime(date: Date, shifts: 1 | 2): Date {
   return result;
 }
 
-// Helper: Add working minutes (skipping non-working hours)
-function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2): Date {
+// Helper: Add working minutes (skipping non-working hours and non-working days)
+function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2, workDays: 5 | 6 | 7 = 7): Date {
   const hoursPerDay = shifts * HOURS_PER_SHIFT;
   const minutesPerDay = hoursPerDay * 60;
   const shiftEndHour = SHIFT_START_HOUR + hoursPerDay;
   
   // Ensure we start at a valid working time
-  let current = getNextWorkingTime(startDate, shifts);
+  let current = getNextWorkingTime(startDate, shifts, workDays);
   let remainingMinutes = minutes;
   
   while (remainingMinutes > 0) {
@@ -64,9 +86,10 @@ function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2): Dat
       current = addMinutes(current, remainingMinutes);
       remainingMinutes = 0;
     } else {
-      // Use up today's remaining shift time and move to next day
+      // Use up today's remaining shift time and move to next working day
       remainingMinutes -= minutesUntilEndOfShift;
       current = addDays(current, 1);
+      current = skipToWorkingDay(current, workDays);
       current = setHours(current, SHIFT_START_HOUR);
       current = setMinutes(current, 0);
       current = setSeconds(current, 0);
@@ -356,6 +379,9 @@ export async function registerRoutes(
     const shiftsParam = parseInt(req.query.shifts as string) || 2;
     const shifts: 1 | 2 = shiftsParam === 1 ? 1 : 2;
     
+    const workDaysParam = parseInt(req.query.workDays as string) || 7;
+    const workDays: 5 | 6 | 7 = workDaysParam === 5 ? 5 : workDaysParam === 6 ? 6 : 7;
+    
     const orders = await storage.getOrders();
     const equipmentList = await storage.getEquipment();
     const allCompatibility = await storage.getAllPartCompatibility();
@@ -374,7 +400,7 @@ export async function registerRoutes(
     
     // Initialize machine availability
     const now = new Date();
-    const workingStartTime = getNextWorkingTime(now, shifts);
+    const workingStartTime = getNextWorkingTime(now, shifts, workDays);
     
     const machineAvailability: Record<number, Date[]> = {};
     equipmentList.forEach(eq => {
@@ -526,8 +552,8 @@ export async function registerRoutes(
       }
       
       const totalDuration = batchesNeeded * effectiveDuration;
-      const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts);
-      const actualEndTime = addWorkingMinutes(actualStartTime, totalDuration, shifts);
+      const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts, workDays);
+      const actualEndTime = addWorkingMinutes(actualStartTime, totalDuration, shifts, workDays);
       
       return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits, chamberDuration };
     }

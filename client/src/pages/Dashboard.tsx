@@ -12,15 +12,17 @@ const ganttStyles = `
   }
 `;
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, BarChart3, CalendarDays, Clock } from "lucide-react";
+import { AlertCircle, BarChart3, CalendarDays, Clock, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Dashboard() {
   const [shiftMode, setShiftMode] = useState<1 | 2>(2);
-  const { data: schedule, isLoading, isError } = useSchedule(shiftMode);
+  const [workDays, setWorkDays] = useState<5 | 6 | 7>(5);
+  const { data: schedule, isLoading, isError } = useSchedule(shiftMode, workDays);
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Day);
 
   if (isLoading) {
@@ -147,6 +149,23 @@ export default function Dashboard() {
               <CardDescription>Visual production roadmap</CardDescription>
             </div>
             <div className="flex items-center gap-6 flex-wrap">
+              <div className="flex items-center gap-3 bg-background/80 px-3 py-2 rounded-lg border">
+                <Calendar className="w-4 h-4 text-muted-foreground" />
+                <Label className="text-sm font-medium">Work Week</Label>
+                <Select 
+                  value={String(workDays)} 
+                  onValueChange={(v) => setWorkDays(Number(v) as 5 | 6 | 7)}
+                >
+                  <SelectTrigger className="w-[100px] h-8" data-testid="select-work-days">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5 Days</SelectItem>
+                    <SelectItem value="6">6 Days</SelectItem>
+                    <SelectItem value="7">7 Days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex items-center gap-3 bg-background/80 px-3 py-2 rounded-lg border">
                 <Clock className="w-4 h-4 text-muted-foreground" />
                 <Label htmlFor="shift-toggle" className="text-sm font-medium cursor-pointer">

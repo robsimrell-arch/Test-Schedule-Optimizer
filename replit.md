@@ -82,6 +82,15 @@ The scheduler supports shift-based work hours:
 - Long tasks spanning multiple days correctly skip non-working hours
 - Schedule API accepts `?shifts=1` or `?shifts=2` query parameter (default: 2)
 
+### Work Week Configuration
+The scheduler supports configurable work weeks:
+- **5 Days (Mon-Fri)**: Standard work week, weekends off
+- **6 Days (Mon-Sat)**: Extended work week, Sunday off
+- **7 Days**: Full week, no days off
+- Select work week using the dropdown in the Dashboard Timeline header
+- Tasks are automatically scheduled around non-working days
+- Schedule API accepts `?workDays=5`, `?workDays=6`, or `?workDays=7` query parameter (default: 7)
+
 ### Build System
 - Development: Vite dev server with Express backend
 - Production: esbuild bundles server code, Vite builds client to `dist/public`

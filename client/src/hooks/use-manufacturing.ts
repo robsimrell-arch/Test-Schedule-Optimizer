@@ -320,11 +320,11 @@ export function useDeleteWorkOrder() {
 // SCHEDULE HOOKS
 // ============================================
 
-export function useSchedule(shifts: 1 | 2 = 2) {
+export function useSchedule(shifts: 1 | 2 = 2, workDays: 5 | 6 | 7 = 7) {
   return useQuery({
-    queryKey: [api.schedule.calculate.path, shifts],
+    queryKey: [api.schedule.calculate.path, shifts, workDays],
     queryFn: async () => {
-      const res = await fetch(`${api.schedule.calculate.path}?shifts=${shifts}`);
+      const res = await fetch(`${api.schedule.calculate.path}?shifts=${shifts}&workDays=${workDays}`);
       if (!res.ok) throw new Error("Failed to calculate schedule");
       return api.schedule.calculate.responses[200].parse(await res.json());
     },
