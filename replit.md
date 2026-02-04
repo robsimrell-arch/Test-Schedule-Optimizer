@@ -62,14 +62,6 @@ Each part number can have different test durations depending on which equipment 
 - If no duration is specified for an equipment, the step's default duration is used
 - The scheduler uses equipment-specific durations when calculating the production schedule
 
-### Batch-Level Pipelining
-The scheduler supports batch-level pipelining for maximum equipment utilization:
-- Each work order is split into individual batches based on step batch size
-- As each batch completes a test step, it can immediately proceed to the next step if equipment is available
-- This means batch 1 can be in Thermal testing while batch 2 is still in Vibration testing
-- The Gantt chart shows batch numbers (e.g., "Vibe B1", "Thermal B2") when orders have multiple batches
-- Single-batch orders don't show batch numbers for cleaner display
-
 ### Part-Chamber Compatibility
 Each part number can be restricted to specific ESS Chambers:
 - The **Chamber Compatibility** tab in Inventory provides a matrix view of all parts vs all ESS Chambers
