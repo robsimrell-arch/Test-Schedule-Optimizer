@@ -97,7 +97,8 @@ The scheduler supports batch-level pipelining for maximum throughput:
 - Each step is broken into individual batches based on batch size
 - Subsequent step batches can start as soon as enough units have completed the previous step
 - This enables overlapping between test steps, reducing overall production time
-- Task IDs include batch numbers for multi-batch steps (e.g., `wo-7-step-14-b1`, `wo-7-step-14-b2`)
+- **Timeline consolidation**: Consecutive batches of the same work order/step are merged into single timeline items for cleaner visualization
+- Task IDs use format `wo-{orderId}-step-{stepId}` or `wo-{orderId}-step-{stepId}-s{N}` for non-consecutive segments (when gaps occur due to equipment waits)
 - The scheduler prioritizes earlier steps to maximize pipeline throughput
 
 ### Build System

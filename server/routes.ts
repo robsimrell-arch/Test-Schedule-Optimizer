@@ -706,8 +706,77 @@ export async function registerRoutes(
       if (idx >= 0) pendingBatches.splice(idx, 1);
     }
 
+    // Merge consecutive batches of the same work order and step into single timeline items
+    const mergedTasks: ScheduledTask[] = [];
+    
+    // Group tasks by work order and step
+    const taskGroups = new Map<string, ScheduledTask[]>();
+    for (const task of tasks) {
+      // Extract base key (workOrderId + stepId) from task id
+      // Task IDs are like "wo-7-step-17-b1" or "wo-7-step-17"
+      const match = task.id.match(/^(wo-\d+-step-\d+)/);
+      if (match) {
+        const key = `${task.workOrderId}-${task.stepId}`;
+        if (!taskGroups.has(key)) {
+          taskGroups.set(key, []);
+        }
+        taskGroups.get(key)!.push(task);
+      } else {
+        // No match, keep as-is
+        mergedTasks.push(task);
+      }
+    }
+    
+    // For each group, merge consecutive tasks
+    Array.from(taskGroups.entries()).forEach(([key, groupTasks]) => {
+      // Sort by start time
+      groupTasks.sort((a: ScheduledTask, b: ScheduledTask) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      
+      let currentMerged: ScheduledTask | null = null;
+      let segmentCount = 0; // Track number of segments for this step
+      
+      for (const task of groupTasks) {
+        if (currentMerged === null) {
+          // Start a new merged task
+          segmentCount++;
+          const newTask = { ...task };
+          const baseId = newTask.id.replace(/-b\d+$/, '');
+          newTask.id = segmentCount > 1 ? `${baseId}-s${segmentCount}` : baseId;
+          currentMerged = newTask;
+        } else {
+          // Check if this task is consecutive (starts when previous ends or overlaps)
+          const prevEnd = new Date(currentMerged.endTime).getTime();
+          const currStart = new Date(task.startTime).getTime();
+          
+          if (currStart <= prevEnd) {
+            // Consecutive or overlapping - extend the merged task
+            const currEnd = new Date(task.endTime).getTime();
+            if (currEnd > prevEnd) {
+              currentMerged.endTime = task.endTime;
+            }
+          } else {
+            // Gap between tasks - save current merged and start new one
+            mergedTasks.push(currentMerged);
+            segmentCount++;
+            const newTask = { ...task };
+            const baseId = newTask.id.replace(/-b\d+$/, '');
+            newTask.id = `${baseId}-s${segmentCount}`;
+            currentMerged = newTask;
+          }
+        }
+      }
+      
+      // Don't forget the last merged task
+      if (currentMerged) {
+        mergedTasks.push(currentMerged);
+      }
+    });
+    
+    // Sort merged tasks by start time for consistent output
+    mergedTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
     res.json({
-      tasks,
+      tasks: mergedTasks,
       equipmentUsage: {}
     });
   });
