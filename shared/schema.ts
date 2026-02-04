@@ -54,6 +54,7 @@ export const partEquipmentCompatibility = pgTable("part_equipment_compatibility"
   partNumberId: integer("part_number_id").notNull(),
   equipmentId: integer("equipment_id").notNull(),
   durationMinutes: integer("duration_minutes"), // Chamber-specific test duration for this part
+  changeoverMinutes: integer("changeover_minutes"), // Time to switch from different part to this one
 }, (t) => ({
   pk: primaryKey({ columns: [t.partNumberId, t.equipmentId] }),
 }));

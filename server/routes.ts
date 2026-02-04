@@ -205,7 +205,8 @@ export async function registerRoutes(
       const body = z.object({
         compatibilities: z.array(z.object({
           equipmentId: z.coerce.number(),
-          durationMinutes: z.coerce.number().optional().nullable()
+          durationMinutes: z.coerce.number().optional().nullable(),
+          changeoverMinutes: z.coerce.number().optional().nullable()
         }))
       }).parse(req.body);
       

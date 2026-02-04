@@ -41,7 +41,7 @@ export interface IStorage {
 
   // Part-Chamber Compatibility
   getPartCompatibility(partNumberId: number): Promise<PartEquipmentCompatibility[]>;
-  setPartCompatibility(partNumberId: number, compatibilities: { equipmentId: number; durationMinutes?: number | null }[]): Promise<PartEquipmentCompatibility[]>;
+  setPartCompatibility(partNumberId: number, compatibilities: { equipmentId: number; durationMinutes?: number | null; changeoverMinutes?: number | null }[]): Promise<PartEquipmentCompatibility[]>;
   getAllPartCompatibility(): Promise<PartEquipmentCompatibility[]>;
   
   // Chambers (for Chamber Compatibility tab)
@@ -243,11 +243,15 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(partEquipmentCompatibility).where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
   }
 
-  async setPartCompatibility(partNumberId: number, compatibilities: { equipmentId: number; durationMinutes?: number | null }[]): Promise<PartEquipmentCompatibility[]> {
+  async setPartCompatibility(partNumberId: number, compatibilities: { equipmentId: number; durationMinutes?: number | null; changeoverMinutes?: number | null }[]): Promise<PartEquipmentCompatibility[]> {
     // Deduplicate by equipmentId (keep last occurrence)
-    const dedupedMap = new Map<number, { equipmentId: number; durationMinutes: number | null }>();
+    const dedupedMap = new Map<number, { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }>();
     for (const c of compatibilities) {
-      dedupedMap.set(c.equipmentId, { equipmentId: c.equipmentId, durationMinutes: c.durationMinutes ?? null });
+      dedupedMap.set(c.equipmentId, { 
+        equipmentId: c.equipmentId, 
+        durationMinutes: c.durationMinutes ?? null,
+        changeoverMinutes: c.changeoverMinutes ?? null
+      });
     }
     const dedupedCompatibilities = Array.from(dedupedMap.values());
     const equipmentIdsToKeep = dedupedCompatibilities.map(c => c.equipmentId);
@@ -266,17 +270,21 @@ export class DatabaseStorage implements IStorage {
           .where(eq(partEquipmentCompatibility.partNumberId, partNumberId));
       }
       
-      // Upsert new compatibilities (insert or update duration)
+      // Upsert new compatibilities (insert or update duration and changeover)
       for (const c of dedupedCompatibilities) {
         await tx.insert(partEquipmentCompatibility)
           .values({ 
             partNumberId, 
             equipmentId: c.equipmentId,
-            durationMinutes: c.durationMinutes
+            durationMinutes: c.durationMinutes,
+            changeoverMinutes: c.changeoverMinutes
           })
           .onConflictDoUpdate({
             target: [partEquipmentCompatibility.partNumberId, partEquipmentCompatibility.equipmentId],
-            set: { durationMinutes: c.durationMinutes }
+            set: { 
+              durationMinutes: c.durationMinutes,
+              changeoverMinutes: c.changeoverMinutes
+            }
           });
       }
       
