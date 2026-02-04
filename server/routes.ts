@@ -407,7 +407,8 @@ export async function registerRoutes(
       machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
     });
 
-    // Build list of all pending tasks (order-step combinations)
+    // Build list of all pending tasks at BATCH level (order-step-batch combinations)
+    // This enables batch-level pipelining: each batch can flow to next step independently
     interface PendingTask {
       orderId: number;
       orderPriority: number;
@@ -416,36 +417,56 @@ export async function registerRoutes(
       stepId: number;
       stepOrder: number;
       step: any;
-      quantity: number;
+      batchIndex: number;      // Which batch (0-indexed)
+      batchSize: number;       // Units in this batch
+      totalBatches: number;    // Total batches for this step
     }
     
     const pendingTasks: PendingTask[] = [];
-    const orderStepCompletion: Record<number, Date> = {}; // orderId -> when last step finished
+    
+    // Track when each batch of each order completes each step
+    // Key: `${orderId}-${batchIndex}` -> when this batch last finished a step
+    const batchCompletion: Record<string, Date> = {};
+    
+    // Track which step each batch is currently on
+    // Key: `${orderId}-${batchIndex}` -> current step order
+    const batchCurrentStep: Record<string, number> = {};
     
     for (const order of orders) {
       const part = await storage.getPart(order.partNumberId);
       if (!part || !part.steps || part.steps.length === 0) continue;
       
-      orderStepCompletion[order.id] = new Date(workingStartTime);
+      // Calculate batches for this order based on first step's batch size
+      // (batch structure is consistent across steps for a given order)
+      const firstStep = part.steps[0];
+      const batchSize = firstStep.batchSize;
+      const totalBatches = Math.ceil(order.quantity / batchSize);
       
-      for (const step of part.steps) {
-        pendingTasks.push({
-          orderId: order.id,
-          orderPriority: order.priority ?? 0,
-          partNumberId: order.partNumberId,
-          partNumber: part.partNumber,
-          stepId: step.id,
-          stepOrder: step.stepOrder,
-          step,
-          quantity: order.quantity
-        });
+      // Initialize batch tracking
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const key = `${order.id}-${batchIdx}`;
+        batchCompletion[key] = new Date(workingStartTime);
+        batchCurrentStep[key] = 1; // Start at step 1
+        
+        // Calculate units in this batch
+        const unitsInBatch = Math.min(batchSize, order.quantity - (batchIdx * batchSize));
+        
+        // Create pending task for each step for this batch
+        for (const step of part.steps) {
+          pendingTasks.push({
+            orderId: order.id,
+            orderPriority: order.priority ?? 0,
+            partNumberId: order.partNumberId,
+            partNumber: part.partNumber,
+            stepId: step.id,
+            stepOrder: step.stepOrder,
+            step,
+            batchIndex: batchIdx,
+            batchSize: unitsInBatch,
+            totalBatches
+          });
+        }
       }
-    }
-    
-    // Track which step each order is currently on
-    const orderCurrentStep: Record<number, number> = {};
-    for (const order of orders) {
-      orderCurrentStep[order.id] = 1; // Start at step 1
     }
 
     const tasks: ScheduledTask[] = [];
@@ -461,9 +482,7 @@ export async function registerRoutes(
       const partCompatibleChambers = compatibilityMap[task.partNumberId] || [];
       const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
       
-      const totalUnits = task.quantity;
-      const batchSize = step.batchSize;
-      const batchesNeeded = Math.ceil(totalUnits / batchSize);
+      // Each task now represents a SINGLE batch, so duration is for one batch only
       
       const eqRequirements = (step.equipmentRequirements || []).filter(
         (req: any) => !chamberIds.has(req.equipmentId)
@@ -551,22 +570,27 @@ export async function registerRoutes(
         effectiveDuration = chamberDuration;
       }
       
-      const totalDuration = batchesNeeded * effectiveDuration;
+      // Each task is now a single batch, so duration is just for one batch
+      const batchDuration = effectiveDuration;
       const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts, workDays);
       
       // Chamber steps: must START during working hours but can run continuously to completion
       // Non-chamber steps: must be fully completed within working hours
       const actualEndTime = step.chamberRequired 
-        ? addMinutes(actualStartTime, totalDuration)  // Continuous time for chambers
-        : addWorkingMinutes(actualStartTime, totalDuration, shifts, workDays);  // Working time only
+        ? addMinutes(actualStartTime, batchDuration)  // Continuous time for chambers
+        : addWorkingMinutes(actualStartTime, batchDuration, shifts, workDays);  // Working time only
       
       return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits, chamberDuration };
     }
     
-    // Greedy scheduling loop - schedule tasks until none remain
+    // Greedy scheduling loop - schedule batch-level tasks until none remain
+    // Each batch can flow to its next step independently (pipelining)
     while (pendingTasks.length > 0) {
-      // Find all tasks that are ready (correct step order for their order)
-      const readyTasks = pendingTasks.filter(t => t.stepOrder === orderCurrentStep[t.orderId]);
+      // Find all batch-tasks that are ready (batch is at correct step)
+      const readyTasks = pendingTasks.filter(t => {
+        const key = `${t.orderId}-${t.batchIndex}`;
+        return t.stepOrder === batchCurrentStep[key];
+      });
       
       if (readyTasks.length === 0) break; // No more tasks can be scheduled
       
@@ -574,7 +598,8 @@ export async function registerRoutes(
       const taskOptions: { task: PendingTask; slot: ReturnType<typeof findEarliestSlot> }[] = [];
       
       for (const task of readyTasks) {
-        const minStartTime = orderStepCompletion[task.orderId];
+        const key = `${task.orderId}-${task.batchIndex}`;
+        const minStartTime = batchCompletion[key];
         const slot = findEarliestSlot(task, minStartTime);
         if (slot) {
           taskOptions.push({ task, slot });
@@ -583,11 +608,13 @@ export async function registerRoutes(
       
       if (taskOptions.length === 0) break;
       
-      // Sort by: earliest start time, then by priority (higher priority first)
+      // Sort by: earliest start time, then by priority (higher first), then by batch index (earlier batches first)
       taskOptions.sort((a, b) => {
         const timeDiff = a.slot!.startTime.getTime() - b.slot!.startTime.getTime();
         if (timeDiff !== 0) return timeDiff;
-        return b.task.orderPriority - a.task.orderPriority; // Higher priority wins ties
+        const priorityDiff = b.task.orderPriority - a.task.orderPriority;
+        if (priorityDiff !== 0) return priorityDiff;
+        return a.task.batchIndex - b.task.batchIndex; // Earlier batches win ties
       });
       
       // Schedule the best task
@@ -599,13 +626,16 @@ export async function registerRoutes(
         return eq?.name || "Unknown";
       }).join(", ");
       
+      // Create unique ID including batch index
+      const batchLabel = task.totalBatches > 1 ? ` B${task.batchIndex + 1}` : '';
+      
       tasks.push({
-        id: `wo-${task.orderId}-step-${task.stepId}`,
+        id: `wo-${task.orderId}-step-${task.stepId}-batch-${task.batchIndex}`,
         workOrderId: task.orderId,
         partNumber: task.partNumber,
         stepId: task.stepId,
         stepOrder: task.stepOrder,
-        stepName: task.step.name || undefined,
+        stepName: task.step.name ? `${task.step.name}${batchLabel}` : undefined,
         equipmentIds: slot!.selectedUnits.map(u => u.eqId),
         equipmentNames: usedEquipmentNames,
         startTime: formatISO(slot!.startTime),
@@ -620,12 +650,17 @@ export async function registerRoutes(
         machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
       }
       
-      // Update order tracking
-      orderStepCompletion[task.orderId] = slot!.endTime;
-      orderCurrentStep[task.orderId] = task.stepOrder + 1;
+      // Update batch-level tracking
+      const key = `${task.orderId}-${task.batchIndex}`;
+      batchCompletion[key] = slot!.endTime;
+      batchCurrentStep[key] = task.stepOrder + 1;
       
       // Remove task from pending
-      const idx = pendingTasks.findIndex(t => t.orderId === task.orderId && t.stepId === task.stepId);
+      const idx = pendingTasks.findIndex(t => 
+        t.orderId === task.orderId && 
+        t.stepId === task.stepId && 
+        t.batchIndex === task.batchIndex
+      );
       if (idx >= 0) pendingTasks.splice(idx, 1);
     }
 
