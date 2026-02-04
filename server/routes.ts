@@ -388,13 +388,28 @@ export async function registerRoutes(
     const allCompatibility = await storage.getAllPartCompatibility();
     const chambers = await storage.getChambers();
     
-    // Build compatibility lookup
-    const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null }[]> = {};
+    // Build compatibility lookup (includes changeover time)
+    const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[]> = {};
     for (const c of allCompatibility) {
       if (!compatibilityMap[c.partNumberId]) {
         compatibilityMap[c.partNumberId] = [];
       }
-      compatibilityMap[c.partNumberId].push({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes });
+      compatibilityMap[c.partNumberId].push({ 
+        equipmentId: c.equipmentId, 
+        durationMinutes: c.durationMinutes,
+        changeoverMinutes: c.changeoverMinutes ?? null
+      });
+    }
+    
+    // Build changeover lookup: partNumberId -> equipmentId -> changeoverMinutes
+    const changeoverMap: Record<number, Record<number, number>> = {};
+    for (const c of allCompatibility) {
+      if (c.changeoverMinutes && c.changeoverMinutes > 0) {
+        if (!changeoverMap[c.partNumberId]) {
+          changeoverMap[c.partNumberId] = {};
+        }
+        changeoverMap[c.partNumberId][c.equipmentId] = c.changeoverMinutes;
+      }
     }
     
     const chamberIds = new Set(chambers.map(c => c.id));
@@ -407,6 +422,16 @@ export async function registerRoutes(
     equipmentList.forEach(eq => {
       machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
     });
+    
+    // Track last part run on each chamber unit for changeover calculation
+    // equipmentId -> unitIdx -> partNumberId
+    const chamberLastPart: Record<number, Record<number, number | null>> = {};
+    for (const chamber of chambers) {
+      chamberLastPart[chamber.id] = {};
+      for (let i = 0; i < chamber.quantity; i++) {
+        chamberLastPart[chamber.id][i] = null;  // No previous part at start
+      }
+    }
 
     // Build list of all pending batch tasks (order-step-batch combinations)
     // This enables pipeline scheduling where batches can overlap between steps
@@ -551,17 +576,17 @@ export async function registerRoutes(
       let chamberDuration: number | null = null;
       
       if (step.chamberRequired) {
-        let availableChambers: { equipmentId: number; durationMinutes: number | null }[];
+        let availableChambers: { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[];
         
         if (hasCompatibilityRestrictions) {
           availableChambers = partCompatibleChambers;
         } else {
-          availableChambers = chambers.map(c => ({ equipmentId: c.id, durationMinutes: null }));
+          availableChambers = chambers.map(c => ({ equipmentId: c.id, durationMinutes: null, changeoverMinutes: null }));
         }
         
         if (availableChambers.length === 0) return null;
         
-        let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAt: Date } | null = null;
+        let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAt: Date; changeoverApplied: number } | null = null;
         
         for (const chamberInfo of availableChambers) {
           const eqId = chamberInfo.equipmentId;
@@ -569,14 +594,34 @@ export async function registerRoutes(
           if (!slots) continue;
           
           for (let i = 0; i < slots.length; i++) {
-            const slotAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime()));
+            // Check if changeover time applies (different part from last run on this unit)
+            let changeoverTime = 0;
+            const lastPartOnUnit = chamberLastPart[eqId]?.[i];
+            if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
+              // Different part - apply changeover time if configured
+              const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
+              if (partChangeoverConfig) {
+                changeoverTime = partChangeoverConfig;
+              }
+            }
+            
+            // Calculate effective available time including changeover
+            const baseAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime()));
+            // Apply changeover using working minutes and then ensure start is in working hours
+            // (Chamber steps must START during working hours, but changeover is setup time)
+            const afterChangeover = changeoverTime > 0 
+              ? addWorkingMinutes(baseAvailableAt, changeoverTime, shifts, workDays)
+              : baseAvailableAt;
+            // Ensure the start time is within working hours (chamber rule)
+            const slotAvailableAt = getNextWorkingTime(afterChangeover, shifts, workDays);
             
             if (!selectedChamber || slotAvailableAt < selectedChamber.availableAt) {
               selectedChamber = { 
                 eqId, 
                 unitIdx: i, 
                 durationMinutes: chamberInfo.durationMinutes,
-                availableAt: slotAvailableAt 
+                availableAt: slotAvailableAt,
+                changeoverApplied: changeoverTime
               };
             }
           }
@@ -687,9 +732,14 @@ export async function registerRoutes(
         dependencies: []
       });
       
-      // Update machine availability
+      // Update machine availability and track chamber last part for changeover
       for (const unit of slot!.selectedUnits) {
         machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
+        
+        // If this is a chamber, track which part was last run on it
+        if (chamberIds.has(unit.eqId)) {
+          chamberLastPart[unit.eqId][unit.unitIdx] = batch.partNumberId;
+        }
       }
       
       // Record this batch's completion time and unit count for pipeline tracking
