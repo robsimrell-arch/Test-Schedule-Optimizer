@@ -67,11 +67,20 @@ Each part number can be restricted to specific ESS Chambers:
 - The **Chamber Compatibility** tab in Inventory provides a matrix view of all parts vs all ESS Chambers
 - Click checkboxes to configure which chambers each part can use
 - Each compatibility entry can have a custom duration (minutes) for chamber-specific test times
+- Each compatibility entry can have a changeover time (minutes) - the time needed to switch the chamber from running a different part to this one
 - Test steps use a "Chamber Required" flag instead of selecting specific chambers
 - The scheduler automatically selects the earliest available compatible chamber based on the compatibility matrix
 - Non-ESS equipment (e.g., Power Supply, ICT) is treated as required (all must be available)
 - ESS Chambers are treated as alternatives (scheduler picks one from compatible options)
 - Backend uses diff-based upsert for race-safe compatibility updates
+
+### Chamber Changeover Time
+The scheduler applies a changeover time penalty when a chamber switches from one part number to another:
+- Changeover time is configured per part-chamber combination in the Chamber Compatibility matrix
+- When a chamber has been running Part A and needs to switch to Part B, the scheduler adds Part B's changeover time before the test can start
+- Changeover time is applied using working hours logic - if changeover would push the start past shift end, the start moves to the next working period
+- Same-part consecutive batches do NOT incur changeover penalty - only switching between different parts triggers it
+- The scheduler tracks which part was last run on each chamber unit to determine when changeover applies
 
 ### Shift-Based Scheduling
 The scheduler supports shift-based work hours:
