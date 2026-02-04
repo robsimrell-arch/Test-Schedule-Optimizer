@@ -553,7 +553,12 @@ export async function registerRoutes(
       
       const totalDuration = batchesNeeded * effectiveDuration;
       const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts, workDays);
-      const actualEndTime = addWorkingMinutes(actualStartTime, totalDuration, shifts, workDays);
+      
+      // Chamber steps: must START during working hours but can run continuously to completion
+      // Non-chamber steps: must be fully completed within working hours
+      const actualEndTime = step.chamberRequired 
+        ? addMinutes(actualStartTime, totalDuration)  // Continuous time for chambers
+        : addWorkingMinutes(actualStartTime, totalDuration, shifts, workDays);  // Working time only
       
       return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits, chamberDuration };
     }
