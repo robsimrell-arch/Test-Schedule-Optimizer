@@ -92,6 +92,14 @@ The scheduler supports configurable work weeks:
 - Tasks are automatically scheduled around non-working days
 - Schedule API accepts `?workDays=5`, `?workDays=6`, or `?workDays=7` query parameter (default: 7)
 
+### Batch Pipeline Scheduling
+The scheduler supports batch-level pipelining for maximum throughput:
+- Each step is broken into individual batches based on batch size
+- Subsequent step batches can start as soon as enough units have completed the previous step
+- This enables overlapping between test steps, reducing overall production time
+- Task IDs include batch numbers for multi-batch steps (e.g., `wo-7-step-14-b1`, `wo-7-step-14-b2`)
+- The scheduler prioritizes earlier steps to maximize pipeline throughput
+
 ### Build System
 - Development: Vite dev server with Express backend
 - Production: esbuild bundles server code, Vite builds client to `dist/public`

@@ -407,8 +407,9 @@ export async function registerRoutes(
       machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
     });
 
-    // Build list of all pending tasks (order-step combinations)
-    interface PendingTask {
+    // Build list of all pending batch tasks (order-step-batch combinations)
+    // This enables pipeline scheduling where batches can overlap between steps
+    interface PendingBatch {
       orderId: number;
       orderPriority: number;
       partNumberId: number;
@@ -416,54 +417,103 @@ export async function registerRoutes(
       stepId: number;
       stepOrder: number;
       step: any;
-      quantity: number;
+      batchIndex: number;      // Which batch this is (0-based)
+      unitsInBatch: number;    // How many units in this specific batch
+      totalBatches: number;    // Total batches for this step
     }
     
-    const pendingTasks: PendingTask[] = [];
-    const orderStepCompletion: Record<number, Date> = {}; // orderId -> when last step finished
+    const pendingBatches: PendingBatch[] = [];
+    
+    // Track batch completions with their unit counts: orderId -> stepOrder -> array of {endTime, unitsCompleted}
+    const batchCompletions: Record<number, Record<number, { endTime: Date; unitsCompleted: number }[]>> = {};
     
     for (const order of orders) {
       const part = await storage.getPart(order.partNumberId);
       if (!part || !part.steps || part.steps.length === 0) continue;
       
-      orderStepCompletion[order.id] = new Date(workingStartTime);
+      batchCompletions[order.id] = {};
       
       for (const step of part.steps) {
-        pendingTasks.push({
-          orderId: order.id,
-          orderPriority: order.priority ?? 0,
-          partNumberId: order.partNumberId,
-          partNumber: part.partNumber,
-          stepId: step.id,
-          stepOrder: step.stepOrder,
-          step,
-          quantity: order.quantity
-        });
+        const batchSize = step.batchSize;
+        const totalBatches = Math.ceil(order.quantity / batchSize);
+        batchCompletions[order.id][step.stepOrder] = [];
+        
+        for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+          // Calculate how many units in this batch
+          const unitsRemaining = order.quantity - (batchIdx * batchSize);
+          const unitsInBatch = Math.min(batchSize, unitsRemaining);
+          
+          pendingBatches.push({
+            orderId: order.id,
+            orderPriority: order.priority ?? 0,
+            partNumberId: order.partNumberId,
+            partNumber: part.partNumber,
+            stepId: step.id,
+            stepOrder: step.stepOrder,
+            step,
+            batchIndex: batchIdx,
+            unitsInBatch,
+            totalBatches
+          });
+        }
       }
     }
     
-    // Track which step each order is currently on
-    const orderCurrentStep: Record<number, number> = {};
-    for (const order of orders) {
-      orderCurrentStep[order.id] = 1; // Start at step 1
+    // Helper: Calculate when enough units are ready for a batch to start
+    // For step N batch B, we need enough units from step N-1 to fill this batch
+    function getMinStartTimeForBatch(batch: PendingBatch): Date {
+      if (batch.stepOrder === 1) {
+        // First step can start immediately
+        return new Date(workingStartTime);
+      }
+      
+      // For subsequent steps, need to wait for enough units from previous step
+      const prevStepCompletions = batchCompletions[batch.orderId][batch.stepOrder - 1] || [];
+      
+      // If no previous step batches have completed yet, this batch isn't ready
+      if (prevStepCompletions.length === 0) {
+        return new Date(8640000000000000); // Far future - not ready yet
+      }
+      
+      // Calculate how many units we need for this batch to start
+      // We need enough completed units to fill this batch entirely
+      const currentStepBatchSize = batch.step.batchSize;
+      const unitsNeededForThisBatch = (batch.batchIndex + 1) * currentStepBatchSize;
+      
+      // Sort completions by end time and accumulate units to find when we have enough
+      const sortedCompletions = [...prevStepCompletions].sort((a, b) => a.endTime.getTime() - b.endTime.getTime());
+      
+      let unitsCompleted = 0;
+      for (const completion of sortedCompletions) {
+        // Add the units from this completed batch (tracked when it was scheduled)
+        unitsCompleted += completion.unitsCompleted;
+        
+        // Check if we have enough units to start this batch
+        // Need enough to fill this batch (or at least the actual units in this batch for last batch)
+        if (unitsCompleted >= Math.min(unitsNeededForThisBatch, batch.unitsInBatch + batch.batchIndex * currentStepBatchSize)) {
+          return completion.endTime;
+        }
+      }
+      
+      // Not enough units completed yet
+      return new Date(8640000000000000); // Far future - not ready yet
     }
 
     const tasks: ScheduledTask[] = [];
     
-    // Helper function to find earliest equipment availability for a task
-    function findEarliestSlot(task: PendingTask, minStartTime: Date): {
+    // Helper function to find earliest equipment availability for a single batch
+    function findEarliestSlotForBatch(batch: PendingBatch, minStartTime: Date): {
       startTime: Date;
       endTime: Date;
       selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[];
       chamberDuration: number | null;
     } | null {
-      const step = task.step;
-      const partCompatibleChambers = compatibilityMap[task.partNumberId] || [];
+      const step = batch.step;
+      const partCompatibleChambers = compatibilityMap[batch.partNumberId] || [];
       const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
       
-      const totalUnits = task.quantity;
-      const batchSize = step.batchSize;
-      const batchesNeeded = Math.ceil(totalUnits / batchSize);
+      // For batch scheduling, we only schedule 1 batch at a time
+      const batchesNeeded = 1;
       
       const eqRequirements = (step.equipmentRequirements || []).filter(
         (req: any) => !chamberIds.has(req.equipmentId)
@@ -563,49 +613,70 @@ export async function registerRoutes(
       return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits, chamberDuration };
     }
     
-    // Greedy scheduling loop - schedule tasks until none remain
-    while (pendingTasks.length > 0) {
-      // Find all tasks that are ready (correct step order for their order)
-      const readyTasks = pendingTasks.filter(t => t.stepOrder === orderCurrentStep[t.orderId]);
+    // Greedy scheduling loop - schedule batches until none remain
+    // This enables pipeline scheduling where subsequent step batches can start
+    // as soon as enough units have completed the previous step
+    while (pendingBatches.length > 0) {
+      // Find all batches that are ready to be scheduled
+      // A batch is ready if:
+      // 1. It's step 1 (no dependencies), OR
+      // 2. Enough units have completed the previous step to fill this batch
+      const readyBatches: PendingBatch[] = [];
       
-      if (readyTasks.length === 0) break; // No more tasks can be scheduled
-      
-      // For each ready task, calculate when it could start
-      const taskOptions: { task: PendingTask; slot: ReturnType<typeof findEarliestSlot> }[] = [];
-      
-      for (const task of readyTasks) {
-        const minStartTime = orderStepCompletion[task.orderId];
-        const slot = findEarliestSlot(task, minStartTime);
-        if (slot) {
-          taskOptions.push({ task, slot });
+      for (const batch of pendingBatches) {
+        const minTime = getMinStartTimeForBatch(batch);
+        // If minTime is in the far future, this batch isn't ready yet
+        if (minTime.getTime() < 8640000000000000) {
+          readyBatches.push(batch);
         }
       }
       
-      if (taskOptions.length === 0) break;
+      if (readyBatches.length === 0) break; // No more batches can be scheduled
       
-      // Sort by: earliest start time, then by priority (higher priority first)
-      taskOptions.sort((a, b) => {
+      // For each ready batch, calculate when it could start
+      const batchOptions: { batch: PendingBatch; slot: ReturnType<typeof findEarliestSlotForBatch>; minTime: Date }[] = [];
+      
+      for (const batch of readyBatches) {
+        const minStartTime = getMinStartTimeForBatch(batch);
+        const slot = findEarliestSlotForBatch(batch, minStartTime);
+        if (slot) {
+          batchOptions.push({ batch, slot, minTime: minStartTime });
+        }
+      }
+      
+      if (batchOptions.length === 0) break;
+      
+      // Sort by: earliest start time, then by priority (higher priority first), then by step order
+      batchOptions.sort((a, b) => {
         const timeDiff = a.slot!.startTime.getTime() - b.slot!.startTime.getTime();
         if (timeDiff !== 0) return timeDiff;
-        return b.task.orderPriority - a.task.orderPriority; // Higher priority wins ties
+        const priorityDiff = b.batch.orderPriority - a.batch.orderPriority;
+        if (priorityDiff !== 0) return priorityDiff;
+        // Prefer earlier steps to maximize pipeline throughput
+        return a.batch.stepOrder - b.batch.stepOrder;
       });
       
-      // Schedule the best task
-      const best = taskOptions[0];
-      const { task, slot } = best;
+      // Schedule the best batch
+      const best = batchOptions[0];
+      const { batch, slot } = best;
       
       const usedEquipmentNames = slot!.selectedUnits.map(u => {
         const eq = equipmentList.find(e => e.id === u.eqId);
         return eq?.name || "Unknown";
       }).join(", ");
       
+      // Create task ID that includes batch info for multi-batch steps
+      const taskId = batch.totalBatches > 1 
+        ? `wo-${batch.orderId}-step-${batch.stepId}-b${batch.batchIndex + 1}`
+        : `wo-${batch.orderId}-step-${batch.stepId}`;
+      
       tasks.push({
-        id: `wo-${task.orderId}-step-${task.stepId}`,
-        workOrderId: task.orderId,
-        partNumber: task.partNumber,
-        stepId: task.stepId,
-        stepOrder: task.stepOrder,
-        stepName: task.step.name || undefined,
+        id: taskId,
+        workOrderId: batch.orderId,
+        partNumber: batch.partNumber,
+        stepId: batch.stepId,
+        stepOrder: batch.stepOrder,
+        stepName: batch.step.name || undefined,
         equipmentIds: slot!.selectedUnits.map(u => u.eqId),
         equipmentNames: usedEquipmentNames,
         startTime: formatISO(slot!.startTime),
@@ -620,13 +691,19 @@ export async function registerRoutes(
         machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
       }
       
-      // Update order tracking
-      orderStepCompletion[task.orderId] = slot!.endTime;
-      orderCurrentStep[task.orderId] = task.stepOrder + 1;
+      // Record this batch's completion time and unit count for pipeline tracking
+      batchCompletions[batch.orderId][batch.stepOrder].push({
+        endTime: slot!.endTime,
+        unitsCompleted: batch.unitsInBatch
+      });
       
-      // Remove task from pending
-      const idx = pendingTasks.findIndex(t => t.orderId === task.orderId && t.stepId === task.stepId);
-      if (idx >= 0) pendingTasks.splice(idx, 1);
+      // Remove batch from pending
+      const idx = pendingBatches.findIndex(b => 
+        b.orderId === batch.orderId && 
+        b.stepId === batch.stepId && 
+        b.batchIndex === batch.batchIndex
+      );
+      if (idx >= 0) pendingBatches.splice(idx, 1);
     }
 
     res.json({
