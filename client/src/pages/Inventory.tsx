@@ -482,11 +482,11 @@ function ChamberCompatibilityTab() {
     if (isCurrentlyCompatible) {
       newCompatibilities = partCompat
         .filter(c => c.equipmentId !== chamberId)
-        .map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes }));
+        .map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes, changeoverMinutes: c.changeoverMinutes }));
     } else {
       newCompatibilities = [
-        ...partCompat.map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes })),
-        { equipmentId: chamberId, durationMinutes: null }
+        ...partCompat.map(c => ({ equipmentId: c.equipmentId, durationMinutes: c.durationMinutes, changeoverMinutes: c.changeoverMinutes })),
+        { equipmentId: chamberId, durationMinutes: null, changeoverMinutes: null }
       ];
     }
     
@@ -497,7 +497,19 @@ function ChamberCompatibilityTab() {
     const partCompat = allCompatibility?.filter(c => c.partNumberId === partId) || [];
     const newCompatibilities = partCompat.map(c => ({
       equipmentId: c.equipmentId,
-      durationMinutes: c.equipmentId === chamberId ? duration : c.durationMinutes
+      durationMinutes: c.equipmentId === chamberId ? duration : c.durationMinutes,
+      changeoverMinutes: c.changeoverMinutes
+    }));
+    
+    setCompatibility.mutate({ partId, compatibilities: newCompatibilities });
+  };
+
+  const updateChangeover = (partId: number, chamberId: number, changeover: number | null) => {
+    const partCompat = allCompatibility?.filter(c => c.partNumberId === partId) || [];
+    const newCompatibilities = partCompat.map(c => ({
+      equipmentId: c.equipmentId,
+      durationMinutes: c.durationMinutes,
+      changeoverMinutes: c.equipmentId === chamberId ? changeover : c.changeoverMinutes
     }));
     
     setCompatibility.mutate({ partId, compatibilities: newCompatibilities });
@@ -535,7 +547,7 @@ function ChamberCompatibilityTab() {
           <Thermometer className="w-5 h-5" /> Chamber Compatibility Matrix
         </CardTitle>
         <CardDescription>
-          Configure which parts can be tested in which ESS chambers and set chamber-specific test durations.
+          Configure which parts can be tested in which ESS chambers, set chamber-specific test durations, and changeover times when switching parts.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -580,21 +592,39 @@ function ChamberCompatibilityTab() {
                           </div>
                           
                           {isCompatible && (
-                            <div className="flex items-center gap-1">
-                              <Label className="text-xs text-muted-foreground">Duration:</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={compat.durationMinutes ?? ""}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  updateDuration(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
-                                }}
-                                placeholder="Default"
-                                className="w-20 h-7 text-xs"
-                                data-testid={`duration-${part.id}-${chamber.id}`}
-                              />
-                              <span className="text-xs text-muted-foreground">min</span>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1">
+                                <Label className="text-xs text-muted-foreground w-16">Duration:</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={compat.durationMinutes ?? ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateDuration(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
+                                  }}
+                                  placeholder="Default"
+                                  className="w-16 h-7 text-xs"
+                                  data-testid={`duration-${part.id}-${chamber.id}`}
+                                />
+                                <span className="text-xs text-muted-foreground">min</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Label className="text-xs text-muted-foreground w-16">Changeover:</Label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  value={compat.changeoverMinutes ?? ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    updateChangeover(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
+                                  }}
+                                  placeholder="0"
+                                  className="w-16 h-7 text-xs"
+                                  data-testid={`changeover-${part.id}-${chamber.id}`}
+                                />
+                                <span className="text-xs text-muted-foreground">min</span>
+                              </div>
                             </div>
                           )}
                         </div>

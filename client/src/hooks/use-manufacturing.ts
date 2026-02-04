@@ -354,7 +354,7 @@ export function useAllCompatibility() {
     queryFn: async () => {
       const res = await fetch("/api/compatibility");
       if (!res.ok) throw new Error("Failed to fetch all compatibility");
-      return res.json() as Promise<{ partNumberId: number; equipmentId: number; durationMinutes: number | null }[]>;
+      return res.json() as Promise<{ partNumberId: number; equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[]>;
     },
   });
 }
@@ -375,7 +375,7 @@ export function useSetPartCompatibility() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({ partId, compatibilities }: { partId: number; compatibilities: { equipmentId: number; durationMinutes?: number | null }[] }) => {
+    mutationFn: async ({ partId, compatibilities }: { partId: number; compatibilities: { equipmentId: number; durationMinutes?: number | null; changeoverMinutes?: number | null }[] }) => {
       const res = await fetch(`/api/parts/${partId}/compatibility`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
