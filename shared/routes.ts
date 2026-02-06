@@ -184,7 +184,8 @@ export const api = {
             endTime: z.string(),
             type: z.literal("test_run"),
             progress: z.number(),
-            dependencies: z.array(z.string()).optional()
+            dependencies: z.array(z.string()).optional(),
+            unitsCount: z.number().optional()
           })),
           equipmentUsage: z.record(z.object({
             name: z.string(),

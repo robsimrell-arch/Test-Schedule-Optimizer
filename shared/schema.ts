@@ -158,6 +158,7 @@ export interface ScheduledTask {
   type: "test_run";
   progress: number;
   dependencies?: string[];
+  unitsCount?: number; // Number of units tested in this task segment
 }
 
 export interface ScheduleResponse {

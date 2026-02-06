@@ -8,7 +8,11 @@ const ganttStyles = `
   .barWrapper text,
   .bar text,
   g[class*="bar"] text {
-    display: none !important;
+    display: block !important;
+    fill: white !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    pointer-events: none;
   }
 `;
 import { Skeleton } from "@/components/ui/skeleton";
@@ -57,18 +61,22 @@ export default function Dashboard() {
 
   // Transform tasks for Gantt library
   const ganttTasks: Task[] = schedule.tasks.map((t: any) => {
-    // Extract chamber name from equipment if present
     const chamberMatch = t.equipmentNames?.match(/ESS Chamber (\d+)/);
     const chamberSuffix = chamberMatch ? ` [C${chamberMatch[1]}]` : '';
+    const units = t.unitsCount || 0;
     
     let baseName = t.stepName 
       ? `${t.partNumber} - ${t.stepName}` 
       : `${t.partNumber} (Step ${t.stepOrder})`;
     
+    const barName = units > 0
+      ? `${baseName}${chamberSuffix} (${units})`
+      : baseName + chamberSuffix;
+    
     return {
       start: new Date(t.startTime),
       end: new Date(t.endTime),
-      name: baseName + chamberSuffix,
+      name: barName,
       id: t.id,
       type: "task",
       progress: t.progress,

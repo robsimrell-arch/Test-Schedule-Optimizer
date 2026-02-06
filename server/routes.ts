@@ -729,7 +729,8 @@ export async function registerRoutes(
         endTime: formatISO(slot!.endTime),
         type: "test_run",
         progress: 0,
-        dependencies: []
+        dependencies: [],
+        unitsCount: batch.unitsInBatch
       });
       
       // Update machine availability and track chamber last part for changeover
@@ -808,6 +809,7 @@ export async function registerRoutes(
           const currStart = new Date(task.startTime).getTime();
           
           if (currStart <= prevEnd) {
+            currentMerged.unitsCount = (currentMerged.unitsCount || 0) + (task.unitsCount || 0);
             const currEnd = new Date(task.endTime).getTime();
             if (currEnd > prevEnd) {
               currentMerged.endTime = task.endTime;
