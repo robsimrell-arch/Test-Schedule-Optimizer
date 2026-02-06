@@ -3,6 +3,18 @@ import { Layout } from "@/components/Layout";
 import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
+import { format } from "date-fns";
+
+function CustomTooltip({ task, fontSize, fontFamily }: { task: Task; fontSize: string; fontFamily: string }) {
+  const fmt = (d: Date) => format(d, "MM-dd-yy h:mm a");
+  return (
+    <div style={{ fontSize, fontFamily, padding: "8px 12px", background: "white", border: "1px solid #e2e8f0", borderRadius: "6px", boxShadow: "0 2px 8px rgba(0,0,0,0.15)", color: "#1a1a1a" }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.name}</div>
+      <div>Start: {fmt(task.start)}</div>
+      <div>End: {fmt(task.end)}</div>
+    </div>
+  );
+}
 
 const ganttStyles = `
   .barWrapper text,
@@ -214,6 +226,7 @@ export default function Dashboard() {
                 fontFamily="var(--font-sans)"
                 fontSize="12px"
                 rowHeight={40}
+                TooltipContent={CustomTooltip}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-muted-foreground italic">
