@@ -465,6 +465,11 @@ function ChamberCompatibilityTab() {
   const { data: rawChambers, isLoading: isLoadingChambers } = useChambers();
   const { data: allCompatibility, isLoading: isLoadingCompat } = useAllCompatibility();
   const setCompatibility = useSetPartCompatibility();
+  const createEquipment = useCreateEquipment();
+  const [addChamberOpen, setAddChamberOpen] = useState(false);
+  const [newChamberName, setNewChamberName] = useState("");
+  const [newChamberQty, setNewChamberQty] = useState("1");
+  const [newChamberDesc, setNewChamberDesc] = useState("");
 
   const isLoading = isLoadingParts || isLoadingChambers || isLoadingCompat;
   
@@ -515,6 +520,23 @@ function ChamberCompatibilityTab() {
     setCompatibility.mutate({ partId, compatibilities: newCompatibilities });
   };
 
+  const handleAddChamber = () => {
+    const name = newChamberName.trim();
+    if (!name) return;
+    const chamberName = name.toLowerCase().includes("chamber") ? name : `ESS Chamber ${name}`;
+    createEquipment.mutate(
+      { name: chamberName, quantity: parseInt(newChamberQty) || 1, description: newChamberDesc.trim() || null },
+      {
+        onSuccess: () => {
+          setNewChamberName("");
+          setNewChamberQty("1");
+          setNewChamberDesc("");
+          setAddChamberOpen(false);
+        },
+      }
+    );
+  };
+
   if (isLoading) {
     return (
       <Card>
@@ -534,7 +556,61 @@ function ChamberCompatibilityTab() {
         <CardContent className="p-8 text-center">
           <Thermometer className="w-12 h-12 mx-auto mb-4 opacity-20" />
           <p className="text-muted-foreground">No ESS Chambers found in the equipment list.</p>
-          <p className="text-xs text-muted-foreground mt-2">Add equipment with "Chamber" in the name to see them here.</p>
+          <p className="text-xs text-muted-foreground mt-2 mb-4">Add a chamber to get started with the compatibility matrix.</p>
+          <Dialog open={addChamberOpen} onOpenChange={setAddChamberOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-add-chamber-empty">
+                <Plus className="w-4 h-4 mr-1" /> Add Chamber
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New ESS Chamber</DialogTitle>
+                <DialogDescription>
+                  Add a new ESS Chamber to the compatibility matrix. If the name doesn't include "Chamber", it will be prefixed with "ESS Chamber".
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="chamber-name-empty">Chamber Name</Label>
+                  <Input
+                    id="chamber-name-empty"
+                    placeholder='e.g. "4" or "ESS Chamber 4"'
+                    value={newChamberName}
+                    onChange={(e) => setNewChamberName(e.target.value)}
+                    data-testid="input-chamber-name-empty"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="chamber-qty-empty">Quantity (units)</Label>
+                  <Input
+                    id="chamber-qty-empty"
+                    type="number"
+                    min={1}
+                    value={newChamberQty}
+                    onChange={(e) => setNewChamberQty(e.target.value)}
+                    data-testid="input-chamber-qty-empty"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="chamber-desc-empty">Description (optional)</Label>
+                  <Input
+                    id="chamber-desc-empty"
+                    placeholder="e.g. Environmental Stress Screening Chamber 4"
+                    value={newChamberDesc}
+                    onChange={(e) => setNewChamberDesc(e.target.value)}
+                    data-testid="input-chamber-desc-empty"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddChamberOpen(false)}>Cancel</Button>
+                <Button onClick={handleAddChamber} disabled={!newChamberName.trim() || createEquipment.isPending}>
+                  {createEquipment.isPending ? "Adding..." : "Add Chamber"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </CardContent>
       </Card>
     );
@@ -543,12 +619,70 @@ function ChamberCompatibilityTab() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Thermometer className="w-5 h-5" /> Chamber Compatibility Matrix
-        </CardTitle>
-        <CardDescription>
-          Configure which parts can be tested in which ESS chambers, set chamber-specific test durations, and changeover times when switching parts.
-        </CardDescription>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Thermometer className="w-5 h-5" /> Chamber Compatibility Matrix
+            </CardTitle>
+            <CardDescription className="mt-1.5">
+              Configure which parts can be tested in which ESS chambers, set chamber-specific test durations, and changeover times when switching parts.
+            </CardDescription>
+          </div>
+          <Dialog open={addChamberOpen} onOpenChange={setAddChamberOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-add-chamber">
+                <Plus className="w-4 h-4 mr-1" /> Add Chamber
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New ESS Chamber</DialogTitle>
+                <DialogDescription>
+                  Add a new ESS Chamber to the compatibility matrix. If the name doesn't include "Chamber", it will be prefixed with "ESS Chamber".
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="chamber-name">Chamber Name</Label>
+                  <Input
+                    id="chamber-name"
+                    placeholder='e.g. "4" or "ESS Chamber 4"'
+                    value={newChamberName}
+                    onChange={(e) => setNewChamberName(e.target.value)}
+                    data-testid="input-chamber-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="chamber-qty">Quantity (units)</Label>
+                  <Input
+                    id="chamber-qty"
+                    type="number"
+                    min={1}
+                    value={newChamberQty}
+                    onChange={(e) => setNewChamberQty(e.target.value)}
+                    data-testid="input-chamber-qty"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="chamber-desc">Description (optional)</Label>
+                  <Input
+                    id="chamber-desc"
+                    placeholder="e.g. Environmental Stress Screening Chamber 4"
+                    value={newChamberDesc}
+                    onChange={(e) => setNewChamberDesc(e.target.value)}
+                    data-testid="input-chamber-desc"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setAddChamberOpen(false)} data-testid="button-cancel-chamber">Cancel</Button>
+                <Button onClick={handleAddChamber} disabled={!newChamberName.trim() || createEquipment.isPending} data-testid="button-save-chamber">
+                  {createEquipment.isPending ? "Adding..." : "Add Chamber"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">

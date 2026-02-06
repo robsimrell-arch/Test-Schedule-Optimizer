@@ -33,6 +33,7 @@ export function useCreateEquipment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.equipment.list.path] });
+      queryClient.invalidateQueries({ queryKey: ["/api/chambers"] });
       toast({ title: "Success", description: "Test equipment added successfully" });
     },
     onError: (error) => {
