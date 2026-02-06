@@ -76,6 +76,7 @@ export function useUpdateEquipment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.equipment.list.path] });
+      queryClient.invalidateQueries({ queryKey: ["/api/chambers"] });
       toast({ title: "Success", description: "Equipment updated" });
     },
   });

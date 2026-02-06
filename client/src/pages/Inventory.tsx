@@ -466,10 +466,13 @@ function ChamberCompatibilityTab() {
   const { data: allCompatibility, isLoading: isLoadingCompat } = useAllCompatibility();
   const setCompatibility = useSetPartCompatibility();
   const createEquipment = useCreateEquipment();
+  const updateEquipment = useUpdateEquipment();
   const [addChamberOpen, setAddChamberOpen] = useState(false);
   const [newChamberName, setNewChamberName] = useState("");
   const [newChamberQty, setNewChamberQty] = useState("1");
   const [newChamberDesc, setNewChamberDesc] = useState("");
+  const [editingChamberId, setEditingChamberId] = useState<number | null>(null);
+  const [editingChamberName, setEditingChamberName] = useState("");
 
   const isLoading = isLoadingParts || isLoadingChambers || isLoadingCompat;
   
@@ -692,7 +695,36 @@ function ChamberCompatibilityTab() {
                 <TableHead className="min-w-[150px]">Part Number</TableHead>
                 {chambers.map(chamber => (
                   <TableHead key={chamber.id} className="text-center min-w-[180px]">
-                    {chamber.name}
+                    {editingChamberId === chamber.id ? (
+                      <Input
+                        autoFocus
+                        value={editingChamberName}
+                        onChange={(e) => setEditingChamberName(e.target.value)}
+                        onBlur={() => {
+                          const trimmed = editingChamberName.trim();
+                          if (trimmed && trimmed !== chamber.name) {
+                            updateEquipment.mutate({ id: chamber.id, data: { name: trimmed } });
+                          }
+                          setEditingChamberId(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                          if (e.key === "Escape") setEditingChamberId(null);
+                        }}
+                        className="h-7 text-xs text-center"
+                        data-testid={`input-edit-chamber-${chamber.id}`}
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover-elevate inline-flex items-center gap-1 px-1 py-0.5 rounded"
+                        onClick={() => { setEditingChamberId(chamber.id); setEditingChamberName(chamber.name); }}
+                        data-testid={`text-chamber-name-${chamber.id}`}
+                        title="Click to rename"
+                      >
+                        {chamber.name}
+                        <Pencil className="w-3 h-3 opacity-40" />
+                      </span>
+                    )}
                   </TableHead>
                 ))}
               </TableRow>
