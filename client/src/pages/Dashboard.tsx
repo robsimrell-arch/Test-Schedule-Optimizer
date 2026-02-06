@@ -3,15 +3,24 @@ import { Layout } from "@/components/Layout";
 import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
-import { format } from "date-fns";
+
+function fmtUTC(d: Date): string {
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  let h = d.getUTCHours();
+  const min = String(d.getUTCMinutes()).padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${mm}-${dd}-${yy} ${h}:${min} ${ampm}`;
+}
 
 function CustomTooltip({ task, fontSize, fontFamily }: { task: Task; fontSize: string; fontFamily: string }) {
-  const fmt = (d: Date) => format(d, "MM-dd-yy h:mm a");
   return (
     <div style={{ fontSize, fontFamily, padding: "8px 12px", background: "white", border: "1px solid #e2e8f0", borderRadius: "6px", boxShadow: "0 2px 8px rgba(0,0,0,0.15)", color: "#1a1a1a" }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.name}</div>
-      <div>Start: {fmt(task.start)}</div>
-      <div>End: {fmt(task.end)}</div>
+      <div>Start: {fmtUTC(task.start)}</div>
+      <div>End: {fmtUTC(task.end)}</div>
     </div>
   );
 }
