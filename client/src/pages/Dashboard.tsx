@@ -9,7 +9,7 @@ const ganttStyles = `
   .bar text,
   g[class*="bar"] text {
     display: block !important;
-    fill: white !important;
+    fill: black !important;
     font-size: 11px !important;
     font-weight: 600 !important;
     pointer-events: none;
@@ -203,7 +203,7 @@ export default function Dashboard() {
                 viewMode={viewMode}
                 viewDate={new Date()}
                 columnWidth={viewMode === ViewMode.Day ? 100 : 60}
-                listCellWidth="155px"
+                listCellWidth=""
                 barBackgroundColor="#3b82f6"
                 barProgressColor="#1d4ed8"
                 barProgressSelectedColor="#1e3a8a"
