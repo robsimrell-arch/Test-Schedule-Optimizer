@@ -20,11 +20,10 @@ import { AlertCircle, BarChart3, CalendarDays, Clock, Calendar } from "lucide-re
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Dashboard() {
-  const [shiftMode, setShiftMode] = useState<1 | 2>(2);
+  const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(3);
   const [workDays, setWorkDays] = useState<5 | 6 | 7>(5);
   const { data: schedule, isLoading, isError } = useSchedule(shiftMode, workDays);
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Day);
@@ -174,17 +173,22 @@ export default function Dashboard() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-3 bg-background/80 px-3 py-2 rounded-lg border">
+              <div className="flex items-center gap-2 bg-background/80 px-3 py-2 rounded-lg border">
                 <Clock className="w-4 h-4 text-muted-foreground" />
-                <Label htmlFor="shift-toggle" className="text-sm font-medium cursor-pointer">
-                  {shiftMode === 1 ? "1 Shift (8h/day)" : "2 Shifts (16h/day)"}
-                </Label>
-                <Switch
-                  id="shift-toggle"
-                  data-testid="switch-shift-mode"
-                  checked={shiftMode === 2}
-                  onCheckedChange={(checked) => setShiftMode(checked ? 2 : 1)}
-                />
+                <Label className="text-sm font-medium">Shifts</Label>
+                <Select
+                  value={String(shiftMode)}
+                  onValueChange={(v) => setShiftMode(Number(v) as 1 | 2 | 3)}
+                >
+                  <SelectTrigger className="w-[140px]" data-testid="select-shift-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 Shift (8h)</SelectItem>
+                    <SelectItem value="2">2 Shifts (16h)</SelectItem>
+                    <SelectItem value="3">3 Shifts (24h)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <Tabs defaultValue={ViewMode.Day} onValueChange={(v) => setViewMode(v as ViewMode)}>
                 <TabsList>

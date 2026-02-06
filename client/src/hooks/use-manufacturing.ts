@@ -322,7 +322,7 @@ export function useDeleteWorkOrder() {
 // SCHEDULE HOOKS
 // ============================================
 
-export function useSchedule(shifts: 1 | 2 = 2, workDays: 5 | 6 | 7 = 7) {
+export function useSchedule(shifts: 1 | 2 | 3 = 3, workDays: 5 | 6 | 7 = 7) {
   return useQuery({
     queryKey: [api.schedule.calculate.path, shifts, workDays],
     queryFn: async () => {

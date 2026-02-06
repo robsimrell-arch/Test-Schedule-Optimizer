@@ -83,14 +83,15 @@ The scheduler applies a changeover time penalty when a chamber switches from one
 - The scheduler tracks which part was last run on each chamber unit to determine when changeover applies
 
 ### Shift-Based Scheduling
-The scheduler supports shift-based work hours:
-- **1 Shift (8 hours/day)**: Work scheduled from 6:00 AM to 2:00 PM only
-- **2 Shifts (16 hours/day)**: Work scheduled from 6:00 AM to 10:00 PM
-- Toggle between shift modes using the switch in the Dashboard Timeline header
+The scheduler supports three 8-hour shifts starting at 7:00 AM:
+- **1 Shift (8 hours/day)**: Work scheduled from 7:00 AM to 3:00 PM only
+- **2 Shifts (16 hours/day)**: Work scheduled from 7:00 AM to 11:00 PM
+- **3 Shifts (24 hours/day)**: Work scheduled around the clock
+- Select shift mode using the dropdown in the Dashboard Timeline header
 - Tasks starting outside working hours are automatically pushed to the next working period
 - **Chamber steps special rule**: Test steps requiring a chamber must START during working hours but can run continuously to completion (overnight/weekends). This reflects real-world ESS testing where chambers run unattended.
 - Non-chamber steps: must be fully completed within working hours (work pauses during non-working time)
-- Schedule API accepts `?shifts=1` or `?shifts=2` query parameter (default: 2)
+- Schedule API accepts `?shifts=1`, `?shifts=2`, or `?shifts=3` query parameter (default: 3)
 
 ### Work Week Configuration
 The scheduler supports configurable work weeks:

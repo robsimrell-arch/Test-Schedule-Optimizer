@@ -8,7 +8,7 @@ import { seedDatabase } from "./seed";
 import type { ScheduledTask, ScheduleResponse } from "@shared/schema";
 
 // Shift configuration
-const SHIFT_START_HOUR = 6; // 6 AM
+const SHIFT_START_HOUR = 7; // 7 AM
 const HOURS_PER_SHIFT = 8;
 
 // Helper: Check if a day is a working day based on work week setting
@@ -29,9 +29,14 @@ function skipToWorkingDay(date: Date, workDays: 5 | 6 | 7): Date {
 }
 
 // Helper: Get the next available working time based on shift schedule
-function getNextWorkingTime(date: Date, shifts: 1 | 2, workDays: 5 | 6 | 7 = 7): Date {
+function getNextWorkingTime(date: Date, shifts: 1 | 2 | 3, workDays: 5 | 6 | 7 = 7): Date {
+  if (shifts === 3) {
+    // 3 shifts = 24 hours, just need to be on a working day
+    let result = skipToWorkingDay(new Date(date), workDays);
+    return result;
+  }
   const hoursPerDay = shifts * HOURS_PER_SHIFT; // 8 or 16 hours
-  const shiftEndHour = SHIFT_START_HOUR + hoursPerDay; // 14 (2pm) or 22 (10pm)
+  const shiftEndHour = SHIFT_START_HOUR + hoursPerDay; // 15 (3pm) or 23 (11pm)
   
   let result = new Date(date);
   
@@ -65,7 +70,30 @@ function getNextWorkingTime(date: Date, shifts: 1 | 2, workDays: 5 | 6 | 7 = 7):
 }
 
 // Helper: Add working minutes (skipping non-working hours and non-working days)
-function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2, workDays: 5 | 6 | 7 = 7): Date {
+function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2 | 3, workDays: 5 | 6 | 7 = 7): Date {
+  if (shifts === 3) {
+    // 3 shifts = 24 hours/day, just need to handle non-working days
+    let current = getNextWorkingTime(startDate, shifts, workDays);
+    let remainingMinutes = minutes;
+    while (remainingMinutes > 0) {
+      const currentHour = current.getHours();
+      const currentMinute = current.getMinutes();
+      const minutesUntilMidnight = (24 * 60) - (currentHour * 60 + currentMinute);
+      if (remainingMinutes <= minutesUntilMidnight) {
+        current = addMinutes(current, remainingMinutes);
+        remainingMinutes = 0;
+      } else {
+        remainingMinutes -= minutesUntilMidnight;
+        current = addDays(current, 1);
+        current = skipToWorkingDay(current, workDays);
+        current = setHours(current, 0);
+        current = setMinutes(current, 0);
+        current = setSeconds(current, 0);
+        current = setMilliseconds(current, 0);
+      }
+    }
+    return current;
+  }
   const hoursPerDay = shifts * HOURS_PER_SHIFT;
   const minutesPerDay = hoursPerDay * 60;
   const shiftEndHour = SHIFT_START_HOUR + hoursPerDay;
@@ -377,8 +405,8 @@ export async function registerRoutes(
   // === SCHEDULER LOGIC ===
   // Greedy scheduler that maximizes equipment utilization while respecting priorities
   app.get(api.schedule.calculate.path, async (req, res) => {
-    const shiftsParam = parseInt(req.query.shifts as string) || 2;
-    const shifts: 1 | 2 = shiftsParam === 1 ? 1 : 2;
+    const shiftsParam = parseInt(req.query.shifts as string) || 3;
+    const shifts: 1 | 2 | 3 = shiftsParam === 1 ? 1 : shiftsParam === 2 ? 2 : 3;
     
     const workDaysParam = parseInt(req.query.workDays as string) || 7;
     const workDays: 5 | 6 | 7 = workDaysParam === 5 ? 5 : workDaysParam === 6 ? 6 : 7;
