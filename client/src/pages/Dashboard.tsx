@@ -4,12 +4,12 @@ import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
 
-function fmtUTC(d: Date): string {
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const yy = String(d.getUTCFullYear()).slice(-2);
-  let h = d.getUTCHours();
-  const min = String(d.getUTCMinutes()).padStart(2, "0");
+function fmtFactoryTime(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  let h = d.getHours();
+  const min = String(d.getMinutes()).padStart(2, "0");
   const ampm = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
   return `${mm}-${dd}-${yy} ${h}:${min} ${ampm}`;
@@ -19,8 +19,8 @@ function CustomTooltip({ task, fontSize, fontFamily }: { task: Task; fontSize: s
   return (
     <div style={{ fontSize, fontFamily, padding: "8px 12px", background: "white", border: "1px solid #e2e8f0", borderRadius: "6px", boxShadow: "0 2px 8px rgba(0,0,0,0.15)", color: "#1a1a1a" }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{task.name}</div>
-      <div>Start: {fmtUTC(task.start)}</div>
-      <div>End: {fmtUTC(task.end)}</div>
+      <div>Start: {fmtFactoryTime(task.start)}</div>
+      <div>End: {fmtFactoryTime(task.end)}</div>
     </div>
   );
 }
@@ -79,7 +79,13 @@ export default function Dashboard() {
     );
   }
 
-  // Transform tasks for Gantt library
+  // The scheduler uses UTC as "factory time". The Gantt library renders bars using
+  // the browser's local timezone methods (getHours, getDate, etc). To ensure bars
+  // appear at the correct factory-time positions regardless of the user's timezone,
+  // we shift dates by the local timezone offset so local rendering matches UTC values.
+  const tzOffsetMs = new Date().getTimezoneOffset() * 60 * 1000;
+  const toFactoryLocal = (iso: string) => new Date(new Date(iso).getTime() + tzOffsetMs);
+
   const ganttTasks: Task[] = schedule.tasks.map((t: any) => {
     const chamberMatch = t.equipmentNames?.match(/ESS Chamber (\d+)/);
     const chamberSuffix = chamberMatch ? ` [C${chamberMatch[1]}]` : '';
@@ -94,8 +100,8 @@ export default function Dashboard() {
       : baseName + chamberSuffix;
     
     return {
-      start: new Date(t.startTime),
-      end: new Date(t.endTime),
+      start: toFactoryLocal(t.startTime),
+      end: toFactoryLocal(t.endTime),
       name: barName,
       id: t.id,
       type: "task",
