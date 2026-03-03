@@ -125,7 +125,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="bg-gradient-to-br from-blue-50 to-white dark:from-slate-900 dark:to-slate-950 border-blue-100 dark:border-slate-800">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -136,27 +136,6 @@ export default function Dashboard() {
             <CardContent>
               <div className="text-3xl font-bold text-foreground">{schedule.tasks.length}</div>
               <p className="text-xs text-muted-foreground mt-1">Total operations queued</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-orange-500" />
-                Avg Equipment Usage
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-foreground">
-                {equipmentStats.length > 0
-                  ? Math.round(
-                      equipmentStats.reduce((acc: number, curr: any) => acc + (curr.usage || 0), 0) /
-                        equipmentStats.length
-                    )
-                  : 0}
-                %
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Across all machines</p>
             </CardContent>
           </Card>
 
@@ -249,35 +228,6 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-        </Card>
-
-        {/* Equipment Usage Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Equipment Utilization</CardTitle>
-            <CardDescription>Load balance analysis per machine type</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {equipmentStats.map((eq: any, i) => (
-                <div key={i} className="space-y-1">
-                  <div className="flex justify-between text-sm font-medium">
-                    <span>{eq.name}</span>
-                    <span>{Math.round(eq.usage || 0)}%</span>
-                  </div>
-                  <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all duration-500"
-                      style={{ width: `${Math.min(eq.usage || 0, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-              {equipmentStats.length === 0 && (
-                <div className="text-sm text-muted-foreground">No equipment data available.</div>
-              )}
-            </div>
-          </CardContent>
         </Card>
       </div>
     </Layout>
