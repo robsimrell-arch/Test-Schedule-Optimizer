@@ -352,14 +352,23 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
         />
       </div>
 
-      <DialogFooter className="pt-4">
+      <DialogFooter className="pt-4 flex gap-2">
+        <Button 
+          variant="outline"
+          type="button"
+          onClick={onSuccess}
+          disabled={update.isPending}
+          className="flex-1"
+        >
+          Cancel
+        </Button>
         <Button 
           type="submit" 
           disabled={update.isPending} 
-          className="w-full"
+          className="flex-1"
           data-testid="button-update-work-order"
         >
-          {update.isPending ? "Updating..." : "Update Work Order"}
+          {update.isPending ? "Saving..." : "Save Changes"}
         </Button>
       </DialogFooter>
     </form>
