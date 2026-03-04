@@ -352,11 +352,11 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
         />
       </div>
 
-      <DialogFooter className="pt-4 flex gap-2">
+      <DialogFooter className="pt-4 flex flex-row gap-2">
         <Button 
           variant="outline"
           type="button"
-          onClick={onSuccess}
+          onClick={() => onSuccess()}
           disabled={update.isPending}
           className="flex-1"
         >
@@ -365,7 +365,7 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
         <Button 
           type="submit" 
           disabled={update.isPending} 
-          className="flex-1"
+          className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
           data-testid="button-update-work-order"
         >
           {update.isPending ? "Saving..." : "Save Changes"}
