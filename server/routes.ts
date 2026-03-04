@@ -497,15 +497,28 @@ export async function registerRoutes(
         batchCompletions[order.id][step.stepOrder] = [];
         
         const completedCount = offsetsMap[step.id] || 0;
-        if (completedCount > 0) {
+        
+        // IMPORTANT: If a LATER step has completions, it implies EARLIER steps 
+        // are also completed for those units.
+        let impliedCompletedCount = completedCount;
+        for (const otherStep of part.steps) {
+          if (otherStep.stepOrder > step.stepOrder) {
+            const otherCompleted = offsetsMap[otherStep.id] || 0;
+            if (otherCompleted > impliedCompletedCount) {
+              impliedCompletedCount = otherCompleted;
+            }
+          }
+        }
+
+        if (impliedCompletedCount > 0) {
           // Add a "virtual" completion at the start time for the already finished units
           batchCompletions[order.id][step.stepOrder].push({
             endTime: workingStartTime,
-            unitsCompleted: completedCount
+            unitsCompleted: impliedCompletedCount
           });
         }
 
-        const remainingQtyToProcess = order.quantity - completedCount;
+        const remainingQtyToProcess = order.quantity - impliedCompletedCount;
         if (remainingQtyToProcess <= 0) continue;
 
         const batchSize = step.batchSize;
