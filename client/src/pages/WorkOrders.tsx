@@ -24,6 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
   const create = useCreateWorkOrder();
   const { data: parts } = useParts();
+  const [selectedPart, setSelectedPart] = useState<any>(null);
 
   const form = useForm<any>({
     defaultValues: {
@@ -32,6 +33,7 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
       quantity: 1,
       priority: 1,
       dueDate: "",
+      stepOffsets: {},
     },
   });
 
@@ -41,13 +43,21 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
       return;
     }
 
+    const stepOffsets = Object.entries(data.stepOffsets || {})
+      .filter(([_, qty]) => Number(qty) > 0)
+      .map(([stepId, qty]) => ({
+        stepId: Number(stepId),
+        quantityCompleted: Number(qty)
+      }));
+
     const payload: any = {
       workOrderNumber: data.workOrderNumber || null,
       partNumberId: Number(data.partNumberId),
       quantity: Number(data.quantity),
       priority: Number(data.priority),
       dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null,
-      status: "pending"
+      status: "pending",
+      stepOffsets
     };
 
     create.mutate(payload, { 
@@ -62,6 +72,13 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
   };
 
   const partNumberId = form.watch("partNumberId");
+
+  const handlePartChange = (val: string) => {
+    form.setValue("partNumberId", val);
+    const part = parts?.find(p => p.id.toString() === val);
+    setSelectedPart(part);
+    form.setValue("stepOffsets", {});
+  };
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -78,7 +95,7 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
         <Label>Part Number</Label>
         <Select 
           value={partNumberId} 
-          onValueChange={(val) => form.setValue("partNumberId", val)}
+          onValueChange={handlePartChange}
         >
           <SelectTrigger data-testid="select-part-number">
             <SelectValue placeholder="Select part..." />
@@ -95,7 +112,7 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Quantity</Label>
+          <Label>Total Quantity</Label>
           <Input 
             type="number" 
             {...form.register("quantity")} 
@@ -115,6 +132,34 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
           />
         </div>
       </div>
+
+      {selectedPart && selectedPart.steps && selectedPart.steps.length > 0 && (
+        <div className="space-y-3 pt-2 border-t mt-4">
+          <Label className="text-sm font-semibold">Units Already Completed Per Step</Label>
+          <div className="grid grid-cols-1 gap-3">
+            {selectedPart.steps.map((step: any) => (
+              <div key={step.id} className="flex items-center justify-between gap-4 p-2 rounded-md bg-muted/50">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    Step {step.stepOrder}: {step.name || "Unnamed Step"}
+                  </p>
+                </div>
+                <div className="w-24">
+                  <Input
+                    type="number"
+                    size={1}
+                    className="h-8 text-right"
+                    {...form.register(`stepOffsets.${step.id}`)}
+                    min={0}
+                    max={form.watch("quantity")}
+                    placeholder="Qty"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label>Due Date</Label>
@@ -142,6 +187,14 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
 function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void }) {
   const update = useUpdateWorkOrder();
   const { data: parts } = useParts();
+  const selectedPart = parts?.find(p => p.id === order.partNumberId);
+
+  const initialOffsets: Record<string, number> = {};
+  if (order.stepOffsets) {
+    order.stepOffsets.forEach((offset: any) => {
+      initialOffsets[offset.stepId.toString()] = offset.quantityCompleted;
+    });
+  }
 
   const form = useForm<any>({
     defaultValues: {
@@ -151,6 +204,7 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
       priority: order.priority || 1,
       status: order.status || "pending",
       dueDate: order.dueDate ? format(new Date(order.dueDate), "yyyy-MM-dd") : "",
+      stepOffsets: initialOffsets,
     },
   });
 
@@ -160,6 +214,13 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
       return;
     }
 
+    const stepOffsets = Object.entries(data.stepOffsets || {})
+      .filter(([_, qty]) => Number(qty) > 0)
+      .map(([stepId, qty]) => ({
+        stepId: Number(stepId),
+        quantityCompleted: Number(qty)
+      }));
+
     const payload: any = {
       workOrderNumber: data.workOrderNumber || null,
       partNumberId: Number(data.partNumberId),
@@ -167,6 +228,7 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
       priority: Number(data.priority),
       status: data.status,
       dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null,
+      stepOffsets
     };
 
     update.mutate({ id: order.id, data: payload }, { 
@@ -198,6 +260,7 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
         <Select 
           value={partNumberId} 
           onValueChange={(val) => form.setValue("partNumberId", val)}
+          disabled
         >
           <SelectTrigger data-testid="select-edit-part-number">
             <SelectValue placeholder="Select part..." />
@@ -214,7 +277,7 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Quantity</Label>
+          <Label>Total Quantity</Label>
           <Input 
             type="number" 
             {...form.register("quantity")} 
@@ -234,6 +297,34 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
           />
         </div>
       </div>
+
+      {selectedPart && selectedPart.steps && selectedPart.steps.length > 0 && (
+        <div className="space-y-3 pt-2 border-t mt-4">
+          <Label className="text-sm font-semibold">Units Already Completed Per Step</Label>
+          <div className="grid grid-cols-1 gap-3">
+            {selectedPart.steps.map((step: any) => (
+              <div key={step.id} className="flex items-center justify-between gap-4 p-2 rounded-md bg-muted/50">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    Step {step.stepOrder}: {step.name || "Unnamed Step"}
+                  </p>
+                </div>
+                <div className="w-24">
+                  <Input
+                    type="number"
+                    size={1}
+                    className="h-8 text-right"
+                    {...form.register(`stepOffsets.${step.id}`)}
+                    min={0}
+                    max={form.watch("quantity")}
+                    placeholder="Qty"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label>Status</Label>

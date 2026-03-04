@@ -31,9 +31,9 @@ export interface IStorage {
   getStepsByPartId(partId: number): Promise<TestStepWithEquipment[]>;
 
   // Orders
-  getOrders(): Promise<(WorkOrder & { partNumber: PartNumber })[]>;
-  createOrder(order: InsertWorkOrder): Promise<WorkOrder>;
-  updateOrder(id: number, order: Partial<InsertWorkOrder>): Promise<WorkOrder | undefined>;
+  getOrders(): Promise<WorkOrderWithDetails[]>;
+  createOrder(order: InsertWorkOrder & { stepOffsets?: { stepId: number, quantityCompleted: number }[] }): Promise<WorkOrder>;
+  updateOrder(id: number, order: Partial<InsertWorkOrder> & { stepOffsets?: { stepId: number, quantityCompleted: number }[] }): Promise<WorkOrder | undefined>;
   deleteOrder(id: number): Promise<void>;
   
   // Helpers for scheduler
@@ -202,28 +202,62 @@ export class DatabaseStorage implements IStorage {
     return steps as TestStepWithEquipment[];
   }
 
-  async getOrders(): Promise<(WorkOrder & { partNumber: PartNumber })[]> {
+  async getOrders(): Promise<WorkOrderWithDetails[]> {
     const orders = await db.query.workOrders.findMany({
       with: {
-        partNumber: true
+        partNumber: true,
+        stepOffsets: true,
       },
       orderBy: (orders, { desc }) => [desc(orders.priority), desc(orders.createdAt)]
     });
-    return orders as (WorkOrder & { partNumber: PartNumber })[];
+    return orders as WorkOrderWithDetails[];
   }
 
-  async createOrder(order: InsertWorkOrder): Promise<WorkOrder> {
-    const [newItem] = await db.insert(workOrders).values(order).returning();
-    return newItem;
+  async createOrder(order: InsertWorkOrder & { stepOffsets?: { stepId: number, quantityCompleted: number }[] }): Promise<WorkOrder> {
+    const { stepOffsets, ...orderData } = order;
+    return await db.transaction(async (tx) => {
+      const [newItem] = await tx.insert(workOrders).values(orderData).returning();
+      if (stepOffsets && stepOffsets.length > 0) {
+        await tx.insert(workOrderStepOffsets).values(
+          stepOffsets.map(offset => ({
+            workOrderId: newItem.id,
+            stepId: offset.stepId,
+            quantityCompleted: offset.quantityCompleted
+          }))
+        );
+      }
+      return newItem;
+    });
   }
 
   async deleteOrder(id: number): Promise<void> {
-    await db.delete(workOrders).where(eq(workOrders.id, id));
+    await db.transaction(async (tx) => {
+      await tx.delete(workOrderStepOffsets).where(eq(workOrderStepOffsets.workOrderId, id));
+      await tx.delete(workOrders).where(eq(workOrders.id, id));
+    });
   }
 
-  async updateOrder(id: number, order: Partial<InsertWorkOrder>): Promise<WorkOrder | undefined> {
-    const [updated] = await db.update(workOrders).set(order).where(eq(workOrders.id, id)).returning();
-    return updated;
+  async updateOrder(id: number, order: Partial<InsertWorkOrder> & { stepOffsets?: { stepId: number, quantityCompleted: number }[] }): Promise<WorkOrder | undefined> {
+    const { stepOffsets, ...orderData } = order;
+    return await db.transaction(async (tx) => {
+      if (Object.keys(orderData).length > 0) {
+        await tx.update(workOrders).set(orderData).where(eq(workOrders.id, id));
+      }
+      if (stepOffsets !== undefined) {
+        await tx.delete(workOrderStepOffsets).where(eq(workOrderStepOffsets.workOrderId, id));
+        if (stepOffsets.length > 0) {
+          await tx.insert(workOrderStepOffsets).values(
+            stepOffsets.map(offset => ({
+              workOrderId: id,
+              stepId: offset.stepId,
+              quantityCompleted: offset.quantityCompleted
+            }))
+          );
+        }
+      }
+      const [updated] = await tx.select().from(workOrders).where(eq(workOrders.id, id));
+      return updated;
+    });
   }
 
   async getAllSteps(): Promise<TestStepWithEquipment[]> {

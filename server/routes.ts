@@ -354,6 +354,7 @@ export async function registerRoutes(
       const priority = Number(req.body.priority) || 1;
       const dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
       const status = req.body.status || "pending";
+      const stepOffsets = req.body.stepOffsets || [];
 
       if (isNaN(partNumberId) || isNaN(quantity)) {
         return res.status(400).json({ message: "Invalid partNumberId or quantity" });
@@ -365,7 +366,8 @@ export async function registerRoutes(
         quantity,
         priority,
         dueDate,
-        status
+        status,
+        stepOffsets
       });
 
       res.status(201).json(order);
@@ -373,11 +375,6 @@ export async function registerRoutes(
       console.error("Error creating work order:", err);
       res.status(500).json({ message: err.message || "Internal server error" });
     }
-  });
-
-  app.delete(api.orders.delete.path, async (req, res) => {
-    await storage.deleteOrder(Number(req.params.id));
-    res.status(204).send();
   });
 
   app.put("/api/orders/:id", async (req, res) => {
@@ -390,7 +387,8 @@ export async function registerRoutes(
         quantity: body.quantity,
         priority: body.priority,
         status: body.status,
-        dueDate: body.dueDate ? new Date(body.dueDate) : null
+        dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        stepOffsets: body.stepOffsets
       });
       if (!updated) {
         return res.status(404).json({ message: "Work order not found" });
@@ -487,15 +485,34 @@ export async function registerRoutes(
       
       batchCompletions[order.id] = {};
       
+      // Initialize batchCompletions with pre-completed units from stepOffsets
+      const offsetsMap: Record<number, number> = {};
+      if (order.stepOffsets) {
+        order.stepOffsets.forEach(offset => {
+          offsetsMap[offset.stepId] = offset.quantityCompleted;
+        });
+      }
+      
       for (const step of part.steps) {
-        const batchSize = step.batchSize;
-        const totalBatches = Math.ceil(order.quantity / batchSize);
         batchCompletions[order.id][step.stepOrder] = [];
         
+        const completedCount = offsetsMap[step.id] || 0;
+        if (completedCount > 0) {
+          // Add a "virtual" completion at the start time for the already finished units
+          batchCompletions[order.id][step.stepOrder].push({
+            endTime: workingStartTime,
+            unitsCompleted: completedCount
+          });
+        }
+
+        const remainingQtyToProcess = order.quantity - completedCount;
+        if (remainingQtyToProcess <= 0) continue;
+
+        const batchSize = step.batchSize;
+        const totalBatches = Math.ceil(remainingQtyToProcess / batchSize);
+        
         for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-          // Calculate how many units in this batch
-          const unitsRemaining = order.quantity - (batchIdx * batchSize);
-          const unitsInBatch = Math.min(batchSize, unitsRemaining);
+          const unitsInThisBatch = Math.min(batchSize, remainingQtyToProcess - (batchIdx * batchSize));
           
           pendingBatches.push({
             orderId: order.id,
@@ -506,7 +523,7 @@ export async function registerRoutes(
             stepOrder: step.stepOrder,
             step,
             batchIndex: batchIdx,
-            unitsInBatch,
+            unitsInBatch: unitsInThisBatch,
             totalBatches
           });
         }

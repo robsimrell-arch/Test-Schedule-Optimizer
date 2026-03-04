@@ -38,6 +38,13 @@ export const stepEquipment = pgTable("step_equipment", {
   pk: primaryKey({ columns: [t.stepId, t.equipmentId] }),
 }));
 
+export const workOrderStepOffsets = pgTable("work_order_step_offsets", {
+  id: serial("id").primaryKey(),
+  workOrderId: integer("work_order_id").notNull(),
+  stepId: integer("step_id").notNull(),
+  quantityCompleted: integer("quantity_completed").notNull().default(0),
+});
+
 export const workOrders = pgTable("work_orders", {
   id: serial("id").primaryKey(),
   workOrderNumber: text("work_order_number"), // User-assigned work order number/identifier
@@ -97,10 +104,22 @@ export const stepEquipmentRelations = relations(stepEquipment, ({ one }) => ({
   }),
 }));
 
-export const workOrdersRelations = relations(workOrders, ({ one }) => ({
+export const workOrdersRelations = relations(workOrders, ({ one, many }) => ({
   partNumber: one(partNumbers, {
     fields: [workOrders.partNumberId],
     references: [partNumbers.id],
+  }),
+  stepOffsets: many(workOrderStepOffsets),
+}));
+
+export const workOrderStepOffsetsRelations = relations(workOrderStepOffsets, ({ one }) => ({
+  workOrder: one(workOrders, {
+    fields: [workOrderStepOffsets.workOrderId],
+    references: [workOrders.id],
+  }),
+  step: one(testSteps, {
+    fields: [workOrderStepOffsets.stepId],
+    references: [testSteps.id],
   }),
 }));
 
@@ -141,7 +160,10 @@ export type InsertPartEquipmentCompatibility = z.infer<typeof insertPartEquipmen
 // Complex types including relations for the frontend
 export type TestStepWithEquipment = TestStep & { equipmentRequirements: (StepEquipment & { equipment: TestEquipment })[] };
 export type PartNumberWithSteps = PartNumber & { steps: TestStepWithEquipment[] };
-export type WorkOrderWithDetails = WorkOrder & { partNumber: PartNumber };
+export type WorkOrderWithDetails = WorkOrder & { 
+  partNumber: PartNumber,
+  stepOffsets?: { stepId: number, quantityCompleted: number }[]
+};
 
 // Schedule Calculation Types
 export interface ScheduledTask {
