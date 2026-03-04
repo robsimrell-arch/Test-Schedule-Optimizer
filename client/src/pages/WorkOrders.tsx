@@ -81,96 +81,98 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
   };
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-      <div className="space-y-2">
-        <Label>Work Order Number (optional)</Label>
-        <Input 
-          {...form.register("workOrderNumber")} 
-          placeholder="e.g., WO-2024-001"
-          data-testid="input-work-order-number"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label>Part Number</Label>
-        <Select 
-          value={partNumberId} 
-          onValueChange={handlePartChange}
-        >
-          <SelectTrigger data-testid="select-part-number">
-            <SelectValue placeholder="Select part..." />
-          </SelectTrigger>
-          <SelectContent>
-            {parts?.map((p) => (
-              <SelectItem key={p.id} value={p.id.toString()}>
-                {p.partNumber}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
+    <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
+      <div className="space-y-4 max-h-[60vh] overflow-y-auto px-1 flex-1">
         <div className="space-y-2">
-          <Label>Total Quantity</Label>
+          <Label>Work Order Number (optional)</Label>
           <Input 
-            type="number" 
-            {...form.register("quantity")} 
-            min={1} 
-            data-testid="input-quantity"
+            {...form.register("workOrderNumber")} 
+            placeholder="e.g., WO-2024-001"
+            data-testid="input-work-order-number"
           />
         </div>
-        <div className="space-y-2">
-          <Label>Priority</Label>
-          <Input 
-            type="number" 
-            {...form.register("priority")} 
-            min={1} 
-            max={10} 
-            placeholder="1-10"
-            data-testid="input-priority"
-          />
-        </div>
-      </div>
 
-      {selectedPart && selectedPart.steps && selectedPart.steps.length > 0 && (
-        <div className="space-y-3 pt-2 border-t mt-4">
-          <Label className="text-sm font-semibold">Units Already Completed Per Step</Label>
-          <div className="grid grid-cols-1 gap-3">
-            {selectedPart.steps.map((step: any) => (
-              <div key={step.id} className="flex items-center justify-between gap-4 p-2 rounded-md bg-muted/50">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    Step {step.stepOrder}: {step.name || "Unnamed Step"}
-                  </p>
-                </div>
-                <div className="w-24">
-                  <Input
-                    type="number"
-                    size={1}
-                    className="h-8 text-right"
-                    {...form.register(`stepOffsets.${step.id}`)}
-                    min={0}
-                    max={form.watch("quantity")}
-                    placeholder="Qty"
-                  />
-                </div>
-              </div>
-            ))}
+        <div className="space-y-2">
+          <Label>Part Number</Label>
+          <Select 
+            value={partNumberId} 
+            onValueChange={handlePartChange}
+          >
+            <SelectTrigger data-testid="select-part-number">
+              <SelectValue placeholder="Select part..." />
+            </SelectTrigger>
+            <SelectContent>
+              {parts?.map((p) => (
+                <SelectItem key={p.id} value={p.id.toString()}>
+                  {p.partNumber}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Total Quantity</Label>
+            <Input 
+              type="number" 
+              {...form.register("quantity")} 
+              min={1} 
+              data-testid="input-quantity"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Priority</Label>
+            <Input 
+              type="number" 
+              {...form.register("priority")} 
+              min={1} 
+              max={10} 
+              placeholder="1-10"
+              data-testid="input-priority"
+            />
           </div>
         </div>
-      )}
 
-      <div className="space-y-2">
-        <Label>Due Date</Label>
-        <Input 
-          type="date" 
-          {...form.register("dueDate")}
-          data-testid="input-due-date"
-        />
+        {selectedPart && selectedPart.steps && selectedPart.steps.length > 0 && (
+          <div className="space-y-3 pt-2 border-t mt-4">
+            <Label className="text-sm font-semibold">Units Already Completed Per Step</Label>
+            <div className="grid grid-cols-1 gap-3">
+              {selectedPart.steps.map((step: any) => (
+                <div key={step.id} className="flex items-center justify-between gap-4 p-2 rounded-md bg-muted/50">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      Step {step.stepOrder}: {step.name || "Unnamed Step"}
+                    </p>
+                  </div>
+                  <div className="w-24">
+                    <Input
+                      type="number"
+                      size={1}
+                      className="h-8 text-right"
+                      {...form.register(`stepOffsets.${step.id}`)}
+                      min={0}
+                      max={form.watch("quantity")}
+                      placeholder="Qty"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2 pb-2">
+          <Label>Due Date</Label>
+          <Input 
+            type="date" 
+            {...form.register("dueDate")}
+            data-testid="input-due-date"
+          />
+        </div>
       </div>
 
-      <DialogFooter className="pt-4">
+      <DialogFooter className="pt-4 mt-auto">
         <Button 
           type="submit" 
           disabled={create.isPending} 
@@ -245,114 +247,116 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
   const status = form.watch("status");
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-      <div className="space-y-2">
-        <Label>Work Order Number (optional)</Label>
-        <Input 
-          {...form.register("workOrderNumber")} 
-          placeholder="e.g., WO-2024-001"
-          data-testid="input-edit-work-order-number"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label>Part Number</Label>
-        <Select 
-          value={partNumberId} 
-          onValueChange={(val) => form.setValue("partNumberId", val)}
-          disabled
-        >
-          <SelectTrigger data-testid="select-edit-part-number">
-            <SelectValue placeholder="Select part..." />
-          </SelectTrigger>
-          <SelectContent>
-            {parts?.map((p) => (
-              <SelectItem key={p.id} value={p.id.toString()}>
-                {p.partNumber}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
+    <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
+      <div className="space-y-4 max-h-[60vh] overflow-y-auto px-1 flex-1">
         <div className="space-y-2">
-          <Label>Total Quantity</Label>
+          <Label>Work Order Number (optional)</Label>
           <Input 
-            type="number" 
-            {...form.register("quantity")} 
-            min={1} 
-            data-testid="input-edit-quantity"
+            {...form.register("workOrderNumber")} 
+            placeholder="e.g., WO-2024-001"
+            data-testid="input-edit-work-order-number"
           />
         </div>
-        <div className="space-y-2">
-          <Label>Priority</Label>
-          <Input 
-            type="number" 
-            {...form.register("priority")} 
-            min={1} 
-            max={10} 
-            placeholder="1-10"
-            data-testid="input-edit-priority"
-          />
-        </div>
-      </div>
 
-      {selectedPart && selectedPart.steps && selectedPart.steps.length > 0 && (
-        <div className="space-y-3 pt-2 border-t mt-4">
-          <Label className="text-sm font-semibold">Units Already Completed Per Step</Label>
-          <div className="grid grid-cols-1 gap-3">
-            {selectedPart.steps.map((step: any) => (
-              <div key={step.id} className="flex items-center justify-between gap-4 p-2 rounded-md bg-muted/50">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    Step {step.stepOrder}: {step.name || "Unnamed Step"}
-                  </p>
-                </div>
-                <div className="w-24">
-                  <Input
-                    type="number"
-                    size={1}
-                    className="h-8 text-right"
-                    {...form.register(`stepOffsets.${step.id}`)}
-                    min={0}
-                    max={form.watch("quantity")}
-                    placeholder="Qty"
-                  />
-                </div>
-              </div>
-            ))}
+        <div className="space-y-2">
+          <Label>Part Number</Label>
+          <Select 
+            value={partNumberId} 
+            onValueChange={(val) => form.setValue("partNumberId", val)}
+            disabled
+          >
+            <SelectTrigger data-testid="select-edit-part-number">
+              <SelectValue placeholder="Select part..." />
+            </SelectTrigger>
+            <SelectContent>
+              {parts?.map((p) => (
+                <SelectItem key={p.id} value={p.id.toString()}>
+                  {p.partNumber}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Total Quantity</Label>
+            <Input 
+              type="number" 
+              {...form.register("quantity")} 
+              min={1} 
+              data-testid="input-edit-quantity"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Priority</Label>
+            <Input 
+              type="number" 
+              {...form.register("priority")} 
+              min={1} 
+              max={10} 
+              placeholder="1-10"
+              data-testid="input-edit-priority"
+            />
           </div>
         </div>
-      )}
 
-      <div className="space-y-2">
-        <Label>Status</Label>
-        <Select 
-          value={status} 
-          onValueChange={(val) => form.setValue("status", val)}
-        >
-          <SelectTrigger data-testid="select-edit-status">
-            <SelectValue placeholder="Select status..." />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="scheduled">Scheduled</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-          </SelectContent>
-        </Select>
+        {selectedPart && selectedPart.steps && selectedPart.steps.length > 0 && (
+          <div className="space-y-3 pt-2 border-t mt-4">
+            <Label className="text-sm font-semibold">Units Already Completed Per Step</Label>
+            <div className="grid grid-cols-1 gap-3">
+              {selectedPart.steps.map((step: any) => (
+                <div key={step.id} className="flex items-center justify-between gap-4 p-2 rounded-md bg-muted/50">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      Step {step.stepOrder}: {step.name || "Unnamed Step"}
+                    </p>
+                  </div>
+                  <div className="w-24">
+                    <Input
+                      type="number"
+                      size={1}
+                      className="h-8 text-right"
+                      {...form.register(`stepOffsets.${step.id}`)}
+                      min={0}
+                      max={form.watch("quantity")}
+                      placeholder="Qty"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label>Status</Label>
+          <Select 
+            value={status} 
+            onValueChange={(val) => form.setValue("status", val)}
+          >
+            <SelectTrigger data-testid="select-edit-status">
+              <SelectValue placeholder="Select status..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="scheduled">Scheduled</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2 pb-2">
+          <Label>Due Date</Label>
+          <Input 
+            type="date" 
+            {...form.register("dueDate")}
+            data-testid="input-edit-due-date"
+          />
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <Label>Due Date</Label>
-        <Input 
-          type="date" 
-          {...form.register("dueDate")}
-          data-testid="input-edit-due-date"
-        />
-      </div>
-
-      <DialogFooter className="pt-4 flex flex-row gap-2">
+      <DialogFooter className="pt-4 mt-auto flex flex-row gap-2">
         <Button 
           variant="outline"
           type="button"
@@ -410,7 +414,7 @@ export default function WorkOrders() {
               <Plus className="w-5 h-5 mr-2" /> New Order
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle>New Work Order</DialogTitle>
               <DialogDescription>Schedule a new production run.</DialogDescription>
@@ -421,7 +425,7 @@ export default function WorkOrders() {
       </div>
 
       <Dialog open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Edit Work Order</DialogTitle>
             <DialogDescription>Update work order details.</DialogDescription>
