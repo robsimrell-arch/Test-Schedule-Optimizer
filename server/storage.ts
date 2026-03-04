@@ -1,12 +1,13 @@
 import { db } from "./db";
 import {
-  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility,
+  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility, workOrderStepOffsets,
   type TestEquipment, type InsertTestEquipment,
   type PartNumber, type InsertPartNumber,
   type TestStep, type InsertTestStep,
   type WorkOrder, type InsertWorkOrder,
   type PartNumberWithSteps, type TestStepWithEquipment,
-  type InsertStepEquipment, type PartEquipmentCompatibility
+  type InsertStepEquipment, type PartEquipmentCompatibility,
+  type WorkOrderStepOffset, type InsertWorkOrderStepOffset
 } from "@shared/schema";
 import { eq, desc, and, notInArray } from "drizzle-orm";
 
