@@ -44,10 +44,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Dashboard() {
-  const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(3);
+  const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(1);
   const [workDays, setWorkDays] = useState<5 | 6 | 7>(5);
   const { data: schedule, isLoading, isError } = useSchedule(shiftMode, workDays);
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Day);
+  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Week);
 
   if (isLoading) {
     return (
@@ -196,7 +196,7 @@ export default function Dashboard() {
                   </SelectContent>
                 </Select>
               </div>
-              <Tabs defaultValue={ViewMode.Day} onValueChange={(v) => setViewMode(v as ViewMode)}>
+              <Tabs defaultValue={ViewMode.Week} onValueChange={(v) => setViewMode(v as ViewMode)}>
                 <TabsList>
                   <TabsTrigger value={ViewMode.QuarterDay}>Hour</TabsTrigger>
                   <TabsTrigger value={ViewMode.HalfDay}>12h</TabsTrigger>
