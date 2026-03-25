@@ -149,7 +149,17 @@ export default function Dashboard() {
                   ? new Date(Math.max(...ganttTasks.map((t) => t.end.getTime()))).toLocaleDateString()
                   : "-"}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">For all current work orders</p>
+              {ganttTasks.length > 0 && (() => {
+                const endMs = Math.max(...ganttTasks.map((t) => t.end.getTime()));
+                const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+                const endStart = new Date(endMs); endStart.setHours(0, 0, 0, 0);
+                const diffDays = Math.round((endStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
+                return (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {diffDays <= 0 ? "Completing today" : `In ${diffDays} day${diffDays === 1 ? "" : "s"}`}
+                  </p>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
