@@ -19,8 +19,8 @@ export function Sidebar() {
             <Box className="w-6 h-6 text-primary" />
           </div>
           <div>
-            <h1 className="font-bold text-lg leading-tight tracking-tight">OptiFlow</h1>
-            <p className="text-xs text-muted-foreground font-medium">Mfg. Scheduler</p>
+            <h1 className="font-bold text-lg leading-tight tracking-tight">Benchmark</h1>
+            <p className="text-xs text-muted-foreground font-medium">Mfg Test Scheduler</p>
           </div>
         </div>
       </div>
