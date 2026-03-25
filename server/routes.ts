@@ -760,11 +760,11 @@ export async function registerRoutes(
       
       if (batchOptions.length === 0) break;
       
-      // Sort by: earliest start time, then by priority (higher priority first), then by step order
+      // Sort by: earliest start time, then by priority (P1 = highest, lower number first), then by step order
       batchOptions.sort((a, b) => {
         const timeDiff = a.slot!.startTime.getTime() - b.slot!.startTime.getTime();
         if (timeDiff !== 0) return timeDiff;
-        const priorityDiff = b.batch.orderPriority - a.batch.orderPriority;
+        const priorityDiff = a.batch.orderPriority - b.batch.orderPriority; // lower number = higher priority
         if (priorityDiff !== 0) return priorityDiff;
         // Prefer earlier steps to maximize pipeline throughput
         return a.batch.stepOrder - b.batch.stepOrder;

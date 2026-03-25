@@ -122,7 +122,7 @@ function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
             />
           </div>
           <div className="space-y-2">
-            <Label>Priority</Label>
+            <Label>Priority (1 = Highest)</Label>
             <Input 
               type="number" 
               {...form.register("priority")} 
@@ -289,7 +289,7 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
             />
           </div>
           <div className="space-y-2">
-            <Label>Priority</Label>
+            <Label>Priority (1 = Highest)</Label>
             <Input 
               type="number" 
               {...form.register("priority")} 
@@ -468,7 +468,7 @@ export default function WorkOrders() {
                     <TableCell className="font-medium">{order.partNumber?.partNumber || "Unknown"}</TableCell>
                     <TableCell>{order.quantity} units</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={order.priority && order.priority > 5 ? "border-orange-200 text-orange-600 bg-orange-50" : ""}>
+                      <Badge variant="outline" className={order.priority && order.priority <= 3 ? "border-orange-200 text-orange-600 bg-orange-50 font-semibold" : ""}>
                         P{order.priority}
                       </Badge>
                     </TableCell>
