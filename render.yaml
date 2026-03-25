@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: optiflow
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false  # You will set this manually in the Render dashboard
+      - key: PORT
+        value: 5000
