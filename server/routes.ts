@@ -400,6 +400,16 @@ export async function registerRoutes(
     }
   });
 
+  app.delete(api.orders.delete.path, async (req, res) => {
+    try {
+      await storage.deleteOrder(Number(req.params.id));
+      res.status(204).send();
+    } catch (err: any) {
+      console.error("Error deleting work order:", err);
+      res.status(500).json({ message: err.message || "Internal server error" });
+    }
+  });
+
   // === SCHEDULER LOGIC ===
   // Greedy scheduler that maximizes equipment utilization while respecting priorities
   app.get(api.schedule.calculate.path, async (req, res) => {
