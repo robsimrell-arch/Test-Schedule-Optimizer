@@ -60,11 +60,19 @@ export const workOrders = pgTable("work_orders", {
 export const partEquipmentCompatibility = pgTable("part_equipment_compatibility", {
   partNumberId: integer("part_number_id").notNull(),
   equipmentId: integer("equipment_id").notNull(),
-  durationMinutes: integer("duration_minutes"), // Chamber-specific test duration for this part
-  changeoverMinutes: integer("changeover_minutes"), // Time to switch from different part to this one
+  durationMinutes: integer("duration_minutes"),
+  changeoverMinutes: integer("changeover_minutes"),
 }, (t) => ({
   pk: primaryKey({ columns: [t.partNumberId, t.equipmentId] }),
 }));
+
+// Sub-assembly / BOM dependencies: childPartId must be fully tested before parentPartId can start
+export const partDependencies = pgTable("part_dependencies", {
+  id: serial("id").primaryKey(),
+  parentPartId: integer("parent_part_id").notNull(), // The assembly that depends on the sub-assembly
+  childPartId: integer("child_part_id").notNull(),   // The sub-assembly that must be completed first
+  quantityRequired: integer("quantity_required").notNull().default(1), // Units of child needed per unit of parent
+});
 
 // === RELATIONS ===
 
@@ -72,6 +80,21 @@ export const partNumbersRelations = relations(partNumbers, ({ many }) => ({
   steps: many(testSteps),
   workOrders: many(workOrders),
   compatibleEquipment: many(partEquipmentCompatibility),
+  parentDependencies: many(partDependencies, { relationName: "parentDeps" }),
+  childDependencies: many(partDependencies, { relationName: "childDeps" }),
+}));
+
+export const partDependenciesRelations = relations(partDependencies, ({ one }) => ({
+  parentPart: one(partNumbers, {
+    fields: [partDependencies.parentPartId],
+    references: [partNumbers.id],
+    relationName: "parentDeps",
+  }),
+  childPart: one(partNumbers, {
+    fields: [partDependencies.childPartId],
+    references: [partNumbers.id],
+    relationName: "childDeps",
+  }),
 }));
 
 export const partEquipmentCompatibilityRelations = relations(partEquipmentCompatibility, ({ one }) => ({
@@ -136,6 +159,7 @@ export const insertTestStepSchema = createInsertSchema(testSteps).omit({ id: tru
 export const insertStepEquipmentSchema = createInsertSchema(stepEquipment);
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true });
 export const insertPartEquipmentCompatibilitySchema = createInsertSchema(partEquipmentCompatibility);
+export const insertPartDependencySchema = createInsertSchema(partDependencies).omit({ id: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 
@@ -157,9 +181,13 @@ export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
 export type PartEquipmentCompatibility = typeof partEquipmentCompatibility.$inferSelect;
 export type InsertPartEquipmentCompatibility = z.infer<typeof insertPartEquipmentCompatibilitySchema>;
 
+export type PartDependency = typeof partDependencies.$inferSelect;
+export type InsertPartDependency = z.infer<typeof insertPartDependencySchema>;
+
 // Complex types including relations for the frontend
 export type TestStepWithEquipment = TestStep & { equipmentRequirements: (StepEquipment & { equipment: TestEquipment })[] };
 export type PartNumberWithSteps = PartNumber & { steps: TestStepWithEquipment[] };
+export type PartDependencyWithPart = PartDependency & { childPart: PartNumber };
 export type WorkOrderWithDetails = WorkOrder & { 
   partNumber: PartNumber,
   stepOffsets?: { stepId: number, quantityCompleted: number }[]

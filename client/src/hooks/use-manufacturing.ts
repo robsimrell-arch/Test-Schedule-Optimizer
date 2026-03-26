@@ -394,3 +394,57 @@ export function useSetPartCompatibility() {
     },
   });
 }
+
+// ============================================
+// BOM / PART DEPENDENCY HOOKS
+// ============================================
+
+export function usePartDependencies(partId: number | null) {
+  return useQuery({
+    queryKey: ["/api/parts", partId, "dependencies"],
+    enabled: !!partId,
+    queryFn: async () => {
+      if (!partId) return [];
+      const res = await fetch(`/api/parts/${partId}/dependencies`);
+      if (!res.ok) throw new Error("Failed to fetch dependencies");
+      return res.json() as Promise<{ id: number; parentPartId: number; childPartId: number; quantityRequired: number; childPart: { id: number; partNumber: string; description: string | null } }[]>;
+    },
+  });
+}
+
+export function useAllPartDependencies() {
+  return useQuery({
+    queryKey: ["/api/dependencies"],
+    queryFn: async () => {
+      const res = await fetch("/api/dependencies");
+      if (!res.ok) throw new Error("Failed to fetch all dependencies");
+      return res.json() as Promise<{ id: number; parentPartId: number; childPartId: number; quantityRequired: number }[]>;
+    },
+  });
+}
+
+export function useSetPartDependencies() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ partId, dependencies }: { partId: number; dependencies: { childPartId: number; quantityRequired: number }[] }) => {
+      const res = await fetch(`/api/parts/${partId}/dependencies`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dependencies }),
+      });
+      if (!res.ok) throw new Error("Failed to update dependencies");
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/parts", variables.partId, "dependencies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dependencies"] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Sub-assembly dependencies updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+}

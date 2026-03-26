@@ -1,13 +1,14 @@
 import { db } from "./db";
 import {
-  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility, workOrderStepOffsets,
+  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility, workOrderStepOffsets, partDependencies,
   type TestEquipment, type InsertTestEquipment,
   type PartNumber, type InsertPartNumber,
   type TestStep, type InsertTestStep,
   type WorkOrder, type InsertWorkOrder,
   type PartNumberWithSteps, type TestStepWithEquipment,
   type InsertStepEquipment, type PartEquipmentCompatibility,
-  type WorkOrderStepOffset, type InsertWorkOrderStepOffset
+  type WorkOrderStepOffset, type InsertWorkOrderStepOffset,
+  type PartDependency
 } from "@shared/schema";
 import { eq, desc, and, notInArray } from "drizzle-orm";
 
@@ -47,6 +48,11 @@ export interface IStorage {
   
   // Chambers (for Chamber Compatibility tab)
   getChambers(): Promise<TestEquipment[]>;
+
+  // BOM / Sub-assembly Dependencies
+  getPartDependencies(parentPartId: number): Promise<(PartDependency & { childPart: PartNumber })[]>;
+  setPartDependencies(parentPartId: number, deps: { childPartId: number; quantityRequired: number }[]): Promise<PartDependency[]>;
+  getAllPartDependencies(): Promise<PartDependency[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -334,6 +340,29 @@ export class DatabaseStorage implements IStorage {
   async getChambers(): Promise<TestEquipment[]> {
     const allEquipment = await db.select().from(testEquipment);
     return allEquipment.filter(eq => eq.name.toLowerCase().includes("chamber"));
+  }
+
+  async getPartDependencies(parentPartId: number): Promise<(PartDependency & { childPart: PartNumber })[]> {
+    const deps = await db.query.partDependencies.findMany({
+      where: eq(partDependencies.parentPartId, parentPartId),
+      with: { childPart: true },
+    });
+    return deps as (PartDependency & { childPart: PartNumber })[];
+  }
+
+  async setPartDependencies(parentPartId: number, deps: { childPartId: number; quantityRequired: number }[]): Promise<PartDependency[]> {
+    return await db.transaction(async (tx) => {
+      await tx.delete(partDependencies).where(eq(partDependencies.parentPartId, parentPartId));
+      if (deps.length === 0) return [];
+      const inserted = await tx.insert(partDependencies).values(
+        deps.map(d => ({ parentPartId, childPartId: d.childPartId, quantityRequired: d.quantityRequired }))
+      ).returning();
+      return inserted;
+    });
+  }
+
+  async getAllPartDependencies(): Promise<PartDependency[]> {
+    return await db.select().from(partDependencies);
   }
 }
 

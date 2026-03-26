@@ -262,6 +262,33 @@ export async function registerRoutes(
     res.json(compatibility);
   });
 
+  // === BOM / PART DEPENDENCY ROUTES ===
+  app.get("/api/parts/:id/dependencies", async (req, res) => {
+    const deps = await storage.getPartDependencies(Number(req.params.id));
+    res.json(deps);
+  });
+
+  app.put("/api/parts/:id/dependencies", async (req, res) => {
+    try {
+      const body = z.object({
+        dependencies: z.array(z.object({
+          childPartId: z.coerce.number(),
+          quantityRequired: z.coerce.number().min(1).default(1),
+        }))
+      }).parse(req.body);
+      const result = await storage.setPartDependencies(Number(req.params.id), body.dependencies);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.get("/api/dependencies", async (req, res) => {
+    const deps = await storage.getAllPartDependencies();
+    res.json(deps);
+  });
+
   // === STEP ROUTES ===
   app.post(api.steps.create.path, async (req, res) => {
     try {
@@ -423,6 +450,22 @@ export async function registerRoutes(
     const equipmentList = await storage.getEquipment();
     const allCompatibility = await storage.getAllPartCompatibility();
     const chambers = await storage.getChambers();
+    const allBomDeps = await storage.getAllPartDependencies();
+
+    // Build BOM lookup: parentPartId -> [{ childPartId, quantityRequired }]
+    const bomMap: Record<number, { childPartId: number; quantityRequired: number }[]> = {};
+    for (const dep of allBomDeps) {
+      if (!bomMap[dep.parentPartId]) bomMap[dep.parentPartId] = [];
+      bomMap[dep.parentPartId].push({ childPartId: dep.childPartId, quantityRequired: dep.quantityRequired });
+    }
+
+    // For each active WO, track its partNumberId so we can find sub-assembly WOs
+    // ordersByPartId: partNumberId -> WorkOrders that produce that part
+    const ordersByPartId: Record<number, typeof orders> = {};
+    for (const order of orders) {
+      if (!ordersByPartId[order.partNumberId]) ordersByPartId[order.partNumberId] = [];
+      ordersByPartId[order.partNumberId].push(order);
+    }
     
     // Build compatibility lookup (includes changeover time)
     const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[]> = {};
@@ -557,8 +600,31 @@ export async function registerRoutes(
     // For step N batch B, we need enough units from step N-1 to fill this batch
     function getMinStartTimeForBatch(batch: PendingBatch): Date {
       if (batch.stepOrder === 1) {
-        // First step can start immediately
-        return new Date(workingStartTime);
+        // Check BOM dependencies — sub-assemblies must be fully completed first
+        let minTime = new Date(workingStartTime);
+        const deps = bomMap[batch.partNumberId] || [];
+        for (const dep of deps) {
+          const childOrders = ordersByPartId[dep.childPartId] || [];
+          // We need at least quantityRequired * (quantity of parent WO) units from child WOs
+          // Simplified: require all child WOs to have their last scheduled task done
+          for (const childOrder of childOrders) {
+            // Find the latest completion time for this child order across all batchCompletions
+            const childCompletions = batchCompletions[childOrder.id];
+            if (!childCompletions) continue;
+            const allStepOrders = Object.keys(childCompletions).map(Number);
+            if (allStepOrders.length === 0) continue;
+            const lastStepOrder = Math.max(...allStepOrders);
+            const lastStepCompletions = childCompletions[lastStepOrder];
+            if (!lastStepCompletions || lastStepCompletions.length === 0) {
+              // Child order has not completed yet — block this batch entirely
+              return new Date(8640000000000000);
+            }
+            // Find the latest end time across all completions of the last step
+            const latestChildEnd = new Date(Math.max(...lastStepCompletions.map(c => c.endTime.getTime())));
+            if (latestChildEnd > minTime) minTime = latestChildEnd;
+          }
+        }
+        return minTime;
       }
       
       // For subsequent steps, need to wait for enough units from previous step

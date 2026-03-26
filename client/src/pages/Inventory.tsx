@@ -23,8 +23,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil, Thermometer, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
-import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useUpdatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, useSetPartCompatibility, useChambers, useAllCompatibility } from "@/hooks/use-manufacturing";
+import { Plus, Trash2, Search, Settings2, Clock, Box, Pencil, Thermometer, ArrowUpDown, ArrowUp, ArrowDown, GitMerge } from "lucide-react";
+import { useEquipment, useParts, useCreateEquipment, useDeleteEquipment, useUpdateEquipment, useCreatePart, useUpdatePart, useDeletePart, useCreateStep, useDeleteStep, useUpdateStep, useSetPartCompatibility, useChambers, useAllCompatibility, useSetPartDependencies, useAllPartDependencies } from "@/hooks/use-manufacturing";
 import type { TestEquipment } from "@shared/schema";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -821,6 +821,163 @@ function ChamberCompatibilityTab() {
   );
 }
 
+// --- BOM / SUB-ASSEMBLY DEPENDENCIES TAB ---
+
+function BomTab() {
+  const { data: parts, isLoading: isLoadingParts } = useParts();
+  const { data: allDeps, isLoading: isLoadingDeps } = useAllPartDependencies();
+  const setDeps = useSetPartDependencies();
+  const [pendingQty, setPendingQty] = useState<Record<string, string>>({});
+
+  if (isLoadingParts || isLoadingDeps) {
+    return (
+      <Card>
+        <CardContent className="p-8">
+          <div className="space-y-4">
+            <div className="h-8 bg-muted rounded animate-pulse" />
+            <div className="h-48 bg-muted rounded animate-pulse" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!parts || parts.length < 2) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <GitMerge className="w-12 h-12 mx-auto mb-4 opacity-20" />
+          <p className="text-muted-foreground">Add at least 2 part numbers to define sub-assembly relationships.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const isDep = (parentId: number, childId: number) =>
+    allDeps?.some(d => d.parentPartId === parentId && d.childPartId === childId) ?? false;
+
+  const getQty = (parentId: number, childId: number) => {
+    const key = `${parentId}-${childId}`;
+    if (pendingQty[key] !== undefined) return pendingQty[key];
+    return String(allDeps?.find(d => d.parentPartId === parentId && d.childPartId === childId)?.quantityRequired ?? 1);
+  };
+
+  const toggle = (parentId: number, childId: number, currentlyOn: boolean) => {
+    const currentDeps = (allDeps ?? []).filter(d => d.parentPartId === parentId);
+    let newDeps;
+    if (currentlyOn) {
+      newDeps = currentDeps
+        .filter(d => d.childPartId !== childId)
+        .map(d => ({ childPartId: d.childPartId, quantityRequired: d.quantityRequired }));
+    } else {
+      newDeps = [
+        ...currentDeps.map(d => ({ childPartId: d.childPartId, quantityRequired: d.quantityRequired })),
+        { childPartId: childId, quantityRequired: 1 },
+      ];
+    }
+    setDeps.mutate({ partId: parentId, dependencies: newDeps });
+  };
+
+  const saveQty = (parentId: number, childId: number) => {
+    const key = `${parentId}-${childId}`;
+    const qty = parseInt(pendingQty[key]) || 1;
+    const currentDeps = (allDeps ?? []).filter(d => d.parentPartId === parentId);
+    const newDeps = currentDeps.map(d =>
+      d.childPartId === childId
+        ? { childPartId: d.childPartId, quantityRequired: qty }
+        : { childPartId: d.childPartId, quantityRequired: d.quantityRequired }
+    );
+    setDeps.mutate({ partId: parentId, dependencies: newDeps });
+    setPendingQty(prev => { const n = { ...prev }; delete n[key]; return n; });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <GitMerge className="w-5 h-5" /> Sub-Assembly Dependencies (BOM)
+        </CardTitle>
+        <CardDescription>
+          Rows = <strong>Assembly (parent)</strong> · Columns = <strong>Sub-Assembly (child)</strong>.
+          Check a cell to mean &ldquo;this row part requires this column part to be fully tested first.&rdquo;
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="min-w-[160px] font-semibold">Assembly ↓ / Sub-Assy →</TableHead>
+                {parts.map(child => (
+                  <TableHead key={child.id} className="text-center min-w-[140px] text-xs">
+                    {child.partNumber}
+                    {child.description && <div className="text-muted-foreground font-normal truncate max-w-[120px]">{child.description}</div>}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {parts.map(parent => (
+                <TableRow key={parent.id}>
+                  <TableCell className="font-medium">
+                    <div>{parent.partNumber}</div>
+                    {parent.description && <div className="text-xs text-muted-foreground truncate max-w-[150px]">{parent.description}</div>}
+                  </TableCell>
+                  {parts.map(child => {
+                    if (parent.id === child.id) {
+                      return <TableCell key={child.id} className="text-center bg-muted/30 text-muted-foreground text-xs">—</TableCell>;
+                    }
+                    const on = isDep(parent.id, child.id);
+                    const key = `${parent.id}-${child.id}`;
+                    return (
+                      <TableCell key={child.id} className="text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <div
+                            className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border cursor-pointer transition-colors text-xs ${
+                              on ? "bg-primary/10 border-primary" : "bg-muted/30 hover:bg-muted/50"
+                            }`}
+                            onClick={() => toggle(parent.id, child.id, on)}
+                          >
+                            <Checkbox
+                              checked={on}
+                              onCheckedChange={() => toggle(parent.id, child.id, on)}
+                            />
+                            <span>{on ? "Required" : "Not required"}</span>
+                          </div>
+                          {on && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <Label className="text-xs text-muted-foreground">Qty:</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={getQty(parent.id, child.id)}
+                                onChange={e => setPendingQty(prev => ({ ...prev, [key]: e.target.value }))}
+                                onBlur={() => saveQty(parent.id, child.id)}
+                                onKeyDown={e => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                                className="w-14 h-7 text-xs"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="mt-4 p-3 bg-muted/30 rounded-lg">
+          <p className="text-sm text-muted-foreground">
+            <strong>How it works:</strong> When a part is marked as requiring a sub-assembly, the scheduler will hold
+            all work orders for that assembly until all active work orders for the sub-assembly have fully completed testing.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // --- MAIN PAGE COMPONENT ---
 
 type SortDirection = 'asc' | 'desc';
@@ -905,6 +1062,7 @@ export default function Inventory() {
           <TabsTrigger value="equipment" className="px-6 py-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Test Equipment</TabsTrigger>
           <TabsTrigger value="parts" className="px-6 py-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Part Numbers</TabsTrigger>
           <TabsTrigger value="chambers" className="px-6 py-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground" data-testid="tab-chambers">Chamber Compatibility</TabsTrigger>
+          <TabsTrigger value="bom" className="px-6 py-2 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground" data-testid="tab-bom">Sub-Assembly BOM</TabsTrigger>
         </TabsList>
 
         {/* EQUIPMENT TAB */}
@@ -1257,6 +1415,11 @@ export default function Inventory() {
         {/* CHAMBER COMPATIBILITY TAB */}
         <TabsContent value="chambers">
           <ChamberCompatibilityTab />
+        </TabsContent>
+
+        {/* SUB-ASSEMBLY BOM TAB */}
+        <TabsContent value="bom">
+          <BomTab />
         </TabsContent>
       </Tabs>
     </Layout>
