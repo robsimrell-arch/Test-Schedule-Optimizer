@@ -969,8 +969,9 @@ function BomTab() {
         </div>
         <div className="mt-4 p-3 bg-muted/30 rounded-lg">
           <p className="text-sm text-muted-foreground">
-            <strong>How it works:</strong> When a part is marked as requiring a sub-assembly, the scheduler will hold
-            all work orders for that assembly until all active work orders for the sub-assembly have fully completed testing.
+            <strong>How it works:</strong> Each batch of the assembly can start as soon as enough sub-assembly units have
+            completed testing to fill that batch — it does not wait for the entire sub-assembly work order to finish.
+            This allows sub-assembly production and top-level assembly testing to overlap, maximizing equipment utilization.
           </p>
         </div>
       </CardContent>
