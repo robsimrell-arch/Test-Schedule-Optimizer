@@ -600,30 +600,55 @@ export async function registerRoutes(
     // For step N batch B, we need enough units from step N-1 to fill this batch
     function getMinStartTimeForBatch(batch: PendingBatch): Date {
       if (batch.stepOrder === 1) {
-        // Check BOM dependencies — sub-assemblies must be fully completed first
+        // BOM pipeline constraint: this parent batch can start as soon as enough
+        // child sub-assembly units are done to satisfy THIS specific batch position.
+        // Uses the same chronological accumulation pattern as intra-order step pipelining.
         let minTime = new Date(workingStartTime);
         const deps = bomMap[batch.partNumberId] || [];
+
         for (const dep of deps) {
           const childOrders = ordersByPartId[dep.childPartId] || [];
-          // We need at least quantityRequired * (quantity of parent WO) units from child WOs
-          // Simplified: require all child WOs to have their last scheduled task done
+          if (childOrders.length === 0) continue;
+
+          // Cumulative parent units produced up to and including this batch
+          const parentUnitsCumulative = batch.batchIndex * batch.step.batchSize + batch.unitsInBatch;
+          // Child units needed before this parent batch can start
+          const childUnitsNeeded = parentUnitsCumulative * dep.quantityRequired;
+
+          // Collect last-step completions from all child WOs that produce this child part
+          const allChildCompletions: { endTime: Date; unitsCompleted: number }[] = [];
           for (const childOrder of childOrders) {
-            // Find the latest completion time for this child order across all batchCompletions
-            const childCompletions = batchCompletions[childOrder.id];
-            if (!childCompletions) continue;
-            const allStepOrders = Object.keys(childCompletions).map(Number);
-            if (allStepOrders.length === 0) continue;
-            const lastStepOrder = Math.max(...allStepOrders);
-            const lastStepCompletions = childCompletions[lastStepOrder];
-            if (!lastStepCompletions || lastStepCompletions.length === 0) {
-              // Child order has not completed yet — block this batch entirely
-              return new Date(8640000000000000);
-            }
-            // Find the latest end time across all completions of the last step
-            const latestChildEnd = new Date(Math.max(...lastStepCompletions.map(c => c.endTime.getTime())));
-            if (latestChildEnd > minTime) minTime = latestChildEnd;
+            const childComps = batchCompletions[childOrder.id];
+            if (!childComps) continue;
+            const stepKeys = Object.keys(childComps).map(Number);
+            if (stepKeys.length === 0) continue;
+            const lastStep = Math.max(...stepKeys);
+            allChildCompletions.push(...(childComps[lastStep] || []));
           }
+
+          if (allChildCompletions.length === 0) {
+            return new Date(8640000000000000); // No child units scheduled yet
+          }
+
+          // Walk completions chronologically; stop when enough child units have been done
+          const sorted = [...allChildCompletions].sort((a, b) => a.endTime.getTime() - b.endTime.getTime());
+          let accumulated = 0;
+          let readyAt: Date | null = null;
+          for (const c of sorted) {
+            accumulated += c.unitsCompleted;
+            if (accumulated >= childUnitsNeeded) {
+              readyAt = c.endTime;
+              break;
+            }
+          }
+
+          if (!readyAt) {
+            return new Date(8640000000000000); // Not enough child units will be produced
+          }
+
+          if (readyAt > minTime) minTime = readyAt;
         }
+
         return minTime;
       }
       
