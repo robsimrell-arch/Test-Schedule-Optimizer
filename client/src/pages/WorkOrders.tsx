@@ -4,111 +4,10 @@ import { useWorkOrders, useCreateWorkOrder, useUpdateWorkOrder, useDeleteWorkOrd
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useForm } from "react-hook-form";
 import { Plus, Trash2, Calendar, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-
-// ─── Create Order Form (modal) ────────────────────────────────────────────────
-
-function CreateOrderForm({ onSuccess }: { onSuccess: () => void }) {
-  const create = useCreateWorkOrder();
-  const { data: parts } = useParts();
-  const [selectedPart, setSelectedPart] = useState<any>(null);
-
-  const form = useForm<any>({
-    defaultValues: {
-      workOrderNumber: "",
-      partNumberId: "",
-      quantity: 1,
-      priority: 1,
-      dueDate: "",
-      stepOffsets: {},
-    },
-  });
-
-  const onSubmit = (data: any) => {
-    if (!data.partNumberId) { alert("Please select a part number"); return; }
-    const stepOffsets = Object.entries(data.stepOffsets || {})
-      .filter(([_, qty]) => Number(qty) > 0)
-      .map(([stepId, qty]) => ({ stepId: Number(stepId), quantityCompleted: Number(qty) }));
-    create.mutate(
-      { workOrderNumber: data.workOrderNumber || null, partNumberId: Number(data.partNumberId), quantity: Number(data.quantity), priority: Number(data.priority), dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : null, status: "pending", stepOffsets },
-      { onSuccess: () => { form.reset(); onSuccess(); }, onError: (e: any) => alert("Failed: " + e.message) }
-    );
-  };
-
-  const partNumberId = form.watch("partNumberId");
-  const handlePartChange = (val: string) => {
-    form.setValue("partNumberId", val);
-    setSelectedPart(parts?.find(p => p.id.toString() === val));
-    form.setValue("stepOffsets", {});
-  };
-
-  return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
-      <div className="space-y-4 max-h-[60vh] overflow-y-auto px-1 flex-1">
-        <div className="space-y-2">
-          <Label>Work Order Number (optional)</Label>
-          <Input {...form.register("workOrderNumber")} placeholder="e.g., WO-2024-001" data-testid="input-work-order-number" />
-        </div>
-        <div className="space-y-2">
-          <Label>Part Number</Label>
-          <Select value={partNumberId} onValueChange={handlePartChange}>
-            <SelectTrigger data-testid="select-part-number"><SelectValue placeholder="Select part..." /></SelectTrigger>
-            <SelectContent>{parts?.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.partNumber}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Total Quantity</Label>
-            <Input type="number" {...form.register("quantity")} min={1} data-testid="input-quantity" />
-          </div>
-          <div className="space-y-2">
-            <Label>Priority (1 = Highest)</Label>
-            <Input type="number" {...form.register("priority")} min={1} max={5} placeholder="1-5" data-testid="input-priority" />
-          </div>
-        </div>
-        {selectedPart?.steps?.length > 0 && (
-          <div className="space-y-3 pt-2 border-t mt-4">
-            <Label className="text-sm font-semibold">Units Already Completed Per Step</Label>
-            <div className="grid grid-cols-1 gap-3">
-              {selectedPart.steps.map((step: any) => (
-                <div key={step.id} className="flex items-center justify-between gap-4 p-2 rounded-md bg-muted/50">
-                  <p className="text-sm font-medium truncate flex-1">Step {step.stepOrder}: {step.name || "Unnamed Step"}</p>
-                  <div className="w-24">
-                    <Input type="number" size={1} className="h-8 text-right" {...form.register(`stepOffsets.${step.id}`)} min={0} max={form.watch("quantity")} placeholder="Qty" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="space-y-2 pb-2">
-          <Label>Due Date</Label>
-          <Input type="date" {...form.register("dueDate")} data-testid="input-due-date" />
-        </div>
-      </div>
-      <DialogFooter className="pt-4 mt-auto">
-        <Button type="submit" disabled={create.isPending} className="w-full" data-testid="button-submit-work-order">
-          {create.isPending ? "Creating..." : "Create Work Order"}
-        </Button>
-      </DialogFooter>
-    </form>
-  );
-}
 
 // ─── Inline Step Offsets Row ──────────────────────────────────────────────────
 
@@ -177,8 +76,17 @@ function StepOffsetRow({ order, colSpan }: { order: any; colSpan: number }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// Draft order shape (before it's saved to DB)
+type DraftOrder = {
+  workOrderNumber: string;
+  quantity: number;
+  priority: number;
+  status: string;
+  dueDate: Date | null;
+};
+
 export default function WorkOrders() {
-  const [isOpen, setIsOpen] = useState(false);
+  const [draft, setDraft] = useState<DraftOrder | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [cyclingId, setCyclingId] = useState<number | null>(null);
   const [cyclingPriorityId, setCyclingPriorityId] = useState<number | null>(null);
@@ -186,6 +94,27 @@ export default function WorkOrders() {
   const { data: parts } = useParts();
   const deleteOrder = useDeleteWorkOrder();
   const updateOrder = useUpdateWorkOrder();
+  const createOrder = useCreateWorkOrder();
+
+  // Generate a WO number like WO-2026-0042
+  const nextWONumber = () => {
+    const year = new Date().getFullYear();
+    const seq = String(Math.floor(Math.random() * 9000) + 1000);
+    return `WO-${year}-${seq}`;
+  };
+
+  const createDraft = () => {
+    if (draft) return; // only one draft at a time
+    setDraft({ workOrderNumber: nextWONumber(), quantity: 1, priority: 1, status: "pending", dueDate: null });
+  };
+
+  const commitDraft = (partNumberId: number) => {
+    if (!draft) return;
+    createOrder.mutate(
+      { workOrderNumber: draft.workOrderNumber || null, partNumberId, quantity: draft.quantity, priority: draft.priority, status: "pending", dueDate: draft.dueDate ? draft.dueDate.toISOString() : null },
+      { onSuccess: () => setDraft(null), onError: (e: any) => alert("Failed: " + e.message) }
+    );
+  };
 
   const STATUS_CYCLE: Record<string, string> = { pending: "scheduled", scheduled: "completed", completed: "pending" };
 
@@ -238,20 +167,9 @@ export default function WorkOrders() {
           <h1 className="text-3xl font-bold tracking-tight">Work Orders</h1>
           <p className="text-muted-foreground mt-2">Create and manage production batches.</p>
         </div>
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogTrigger asChild>
-            <Button size="lg" className="shadow-lg shadow-primary/20">
-              <Plus className="w-5 h-5 mr-2" /> New Order
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
-              <DialogTitle>New Work Order</DialogTitle>
-              <DialogDescription>Schedule a new production run.</DialogDescription>
-            </DialogHeader>
-            <CreateOrderForm onSuccess={() => setIsOpen(false)} />
-          </DialogContent>
-        </Dialog>
+        <Button size="lg" className="shadow-lg shadow-primary/20" onClick={createDraft} disabled={!!draft}>
+          <Plus className="w-5 h-5 mr-2" /> New Order
+        </Button>
       </div>
 
       <Card className="border-border/60 shadow-sm">
@@ -279,6 +197,82 @@ export default function WorkOrders() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* ── Draft row (unsaved) ───────────────────────── */}
+                {draft && (
+                  <TableRow className="bg-primary/5 border-l-2 border-primary animate-in fade-in">
+                    {/* no expand toggle for draft */}
+                    <TableCell className="p-1 w-8" />
+
+                    {/* WO Number */}
+                    <TableCell className="font-mono text-xs">
+                      <input
+                        type="text"
+                        value={draft.workOrderNumber}
+                        onChange={e => setDraft(d => d ? { ...d, workOrderNumber: e.target.value } : d)}
+                        className="bg-transparent border-0 border-b border-input focus:border-primary focus:outline-none w-[130px] text-xs"
+                        placeholder="WO-YYYY-NNNN"
+                      />
+                    </TableCell>
+
+                    {/* Part # — selecting triggers save */}
+                    <TableCell>
+                      <Select onValueChange={val => commitDraft(Number(val))}>
+                        <SelectTrigger className="h-8 text-sm border-dashed border-muted-foreground/40 bg-transparent w-[140px] text-muted-foreground">
+                          <SelectValue placeholder="Part #" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {parts?.map(p => (
+                            <SelectItem key={p.id} value={p.id.toString()}>{p.partNumber}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+
+                    {/* Quantity */}
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number" min={1}
+                          value={draft.quantity}
+                          onChange={e => setDraft(d => d ? { ...d, quantity: Number(e.target.value) || 1 } : d)}
+                          className="bg-transparent border-0 border-b border-input focus:border-primary focus:outline-none w-14 text-sm text-right"
+                        />
+                        <span className="text-xs text-muted-foreground">units</span>
+                      </div>
+                    </TableCell>
+
+                    {/* Priority badge (static for draft) */}
+                    <TableCell>
+                      <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50 font-bold">P1</Badge>
+                    </TableCell>
+
+                    {/* Due Date */}
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <input
+                          type="date"
+                          onChange={e => setDraft(d => d ? { ...d, dueDate: e.target.value ? new Date(e.target.value) : null } : d)}
+                          className="text-sm bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[130px] cursor-pointer"
+                        />
+                      </div>
+                    </TableCell>
+
+                    {/* Status */}
+                    <TableCell>
+                      <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-200 border capitalize">pending</Badge>
+                    </TableCell>
+
+                    {/* Discard */}
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-red-500" onClick={() => setDraft(null)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )}
+
+                {/* ── Saved orders ─────────────────────────────── */}
                 {orders?.map((order) => {
                   const expanded = expandedId === order.id;
                   return (
