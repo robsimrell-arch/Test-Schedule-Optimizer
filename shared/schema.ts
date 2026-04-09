@@ -211,7 +211,17 @@ export interface ScheduledTask {
   unitsCount?: number; // Number of units tested in this task segment
 }
 
+export interface DueDateWarning {
+  workOrderId: number;
+  workOrderNumber: string | null;
+  partNumber: string;
+  dueDate: string;         // ISO string
+  projectedCompletion: string; // ISO string - end time of last task for this order
+  daysLate: number;        // How many calendar days past due
+}
+
 export interface ScheduleResponse {
   tasks: ScheduledTask[];
   equipmentUsage: Record<number, { name: string, usage: number }>; // % usage
+  dueDateWarnings: DueDateWarning[];
 }

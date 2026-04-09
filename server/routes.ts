@@ -994,9 +994,43 @@ export async function registerRoutes(
     // Sort merged tasks by start time for consistent output
     mergedTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
+    // Compute per-order projected completion (latest endTime across all tasks)
+    const orderCompletionMap: Record<number, Date> = {};
+    for (const task of mergedTasks) {
+      const end = new Date(task.endTime);
+      if (!orderCompletionMap[task.workOrderId] || end > orderCompletionMap[task.workOrderId]) {
+        orderCompletionMap[task.workOrderId] = end;
+      }
+    }
+
+    // Build due-date warnings for orders whose projected completion exceeds their due date
+    const dueDateWarnings: import("@shared/schema").DueDateWarning[] = [];
+    for (const order of orders) {
+      if (!order.dueDate) continue;
+      const projected = orderCompletionMap[order.id];
+      if (!projected) continue;
+      const due = new Date(order.dueDate);
+      if (projected > due) {
+        const daysLate = Math.ceil((projected.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+        const part = await storage.getPart(order.partNumberId);
+        dueDateWarnings.push({
+          workOrderId: order.id,
+          workOrderNumber: order.workOrderNumber ?? null,
+          partNumber: part?.partNumber ?? "Unknown",
+          dueDate: formatISO(due),
+          projectedCompletion: formatISO(projected),
+          daysLate,
+        });
+      }
+    }
+
+    // Sort warnings by most days late first
+    dueDateWarnings.sort((a, b) => b.daysLate - a.daysLate);
+
     res.json({
       tasks: mergedTasks,
-      equipmentUsage: {}
+      equipmentUsage: {},
+      dueDateWarnings,
     });
   });
 

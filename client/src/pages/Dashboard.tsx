@@ -37,7 +37,7 @@ const ganttStyles = `
   }
 `;
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, BarChart3, CalendarDays, Clock, Calendar } from "lucide-react";
+import { AlertCircle, AlertTriangle, BarChart3, CalendarDays, Clock, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -163,6 +163,38 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Due Date Warnings */}
+        {schedule.dueDateWarnings && schedule.dueDateWarnings.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-red-600 font-semibold text-sm">
+              <AlertTriangle className="w-4 h-4" />
+              {schedule.dueDateWarnings.length} order{schedule.dueDateWarnings.length > 1 ? "s" : ""} projected to miss due date
+            </div>
+            <div className="space-y-2">
+              {schedule.dueDateWarnings.map((w) => (
+                <div
+                  key={w.workOrderId}
+                  className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-3 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 text-sm"
+                >
+                  <span className="font-semibold text-red-700 dark:text-red-400">
+                    {w.workOrderNumber ?? `WO-${String(w.workOrderId).padStart(4, "0")}`}
+                  </span>
+                  <span className="text-red-700 dark:text-red-400">{w.partNumber}</span>
+                  <span className="text-muted-foreground">
+                    Due: <span className="font-medium text-foreground">{new Date(w.dueDate).toLocaleDateString()}</span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    Projected: <span className="font-medium text-foreground">{new Date(w.projectedCompletion).toLocaleDateString()}</span>
+                  </span>
+                  <span className="ml-auto font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
+                    {w.daysLate} day{w.daysLate !== 1 ? "s" : ""} late
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Gantt Chart Section */}
         <Card className="shadow-lg border-border/60 overflow-hidden">
