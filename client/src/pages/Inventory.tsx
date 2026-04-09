@@ -868,12 +868,26 @@ function BomTab() {
     );
   }
 
-  if (!parts || parts.length < 2) {
+  const subAssemblies = parts?.filter(p => p.partNumber.toUpperCase().includes("CCA")) || [];
+
+  if (!parts || parts.length < 1) {
     return (
       <Card>
         <CardContent className="p-8 text-center">
           <GitMerge className="w-12 h-12 mx-auto mb-4 opacity-20" />
-          <p className="text-muted-foreground">Add at least 2 part numbers to define sub-assembly relationships.</p>
+          <p className="text-muted-foreground">Add part numbers to define sub-assembly relationships.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (subAssemblies.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <GitMerge className="w-12 h-12 mx-auto mb-4 opacity-20" />
+          <p className="text-muted-foreground">No parts found with &ldquo;CCA&rdquo; in the name.</p>
+          <p className="text-xs text-muted-foreground mt-2">Only CCA parts can be used as sub-assemblies.</p>
         </CardContent>
       </Card>
     );
@@ -925,7 +939,7 @@ function BomTab() {
         </CardTitle>
         <CardDescription>
           Rows = <strong>Assembly (parent)</strong> · Columns = <strong>Sub-Assembly (child)</strong>.
-          Check a cell to mean &ldquo;this row part requires this column part to be fully tested first.&rdquo;
+          Only parts with &ldquo;CCA&rdquo; in their name are shown as sub-assemblies.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -934,7 +948,7 @@ function BomTab() {
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-[160px] font-semibold">Assembly ↓ / Sub-Assy →</TableHead>
-                {parts.map(child => (
+                {subAssemblies.map(child => (
                   <TableHead key={child.id} className="text-center min-w-[140px] text-xs">
                     {child.partNumber}
                     {child.description && <div className="text-muted-foreground font-normal truncate max-w-[120px]">{child.description}</div>}
@@ -949,7 +963,7 @@ function BomTab() {
                     <div>{parent.partNumber}</div>
                     {parent.description && <div className="text-xs text-muted-foreground truncate max-w-[150px]">{parent.description}</div>}
                   </TableCell>
-                  {parts.map(child => {
+                  {subAssemblies.map(child => {
                     if (parent.id === child.id) {
                       return <TableCell key={child.id} className="text-center bg-muted/30 text-muted-foreground text-xs">—</TableCell>;
                     }

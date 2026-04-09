@@ -182,10 +182,10 @@ export default function Dashboard() {
                   </span>
                   <span className="text-red-700 dark:text-red-400">{w.partNumber}</span>
                   <span className="text-muted-foreground">
-                    Due: <span className="font-medium text-foreground">{new Date(w.dueDate).toLocaleDateString()}</span>
+                    Due: <span className="font-medium text-foreground">{toFactoryLocal(w.dueDate).toLocaleDateString()}</span>
                   </span>
                   <span className="text-muted-foreground">
-                    Projected: <span className="font-medium text-foreground">{new Date(w.projectedCompletion).toLocaleDateString()}</span>
+                    Projected: <span className="font-medium text-foreground">{toFactoryLocal(w.projectedCompletion).toLocaleDateString()}</span>
                   </span>
                   <span className="ml-auto font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
                     {w.daysLate} day{w.daysLate !== 1 ? "s" : ""} late

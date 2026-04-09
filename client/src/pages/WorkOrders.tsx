@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Calendar, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
-import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // ─── Inline Step Offsets Row ──────────────────────────────────────────────────
@@ -30,7 +29,7 @@ function StepOffsetRow({ order, colSpan }: { order: any; colSpan: number }) {
       .filter((o: any) => o.quantityCompleted > 0);
     updateOrder.mutate({
       id: order.id,
-      data: { ...order, dueDate: order.dueDate ? new Date(order.dueDate) : null, stepOffsets },
+      data: { ...order, dueDate: order.dueDate ? new Date(order.dueDate).toISOString() : null, stepOffsets },
     });
   };
 
@@ -119,14 +118,14 @@ export default function WorkOrders() {
   const STATUS_CYCLE: Record<string, string> = { pending: "scheduled", scheduled: "completed", completed: "pending" };
 
   const saveField = (order: any, patch: Record<string, any>) => {
-    updateOrder.mutate({ id: order.id, data: { ...order, dueDate: order.dueDate ? new Date(order.dueDate) : null, ...patch } });
+    updateOrder.mutate({ id: order.id, data: { ...order, dueDate: order.dueDate ? new Date(order.dueDate).toISOString() : null, ...patch } });
   };
 
   const cycleStatus = (order: any) => {
     if (cyclingId === order.id) return;
     setCyclingId(order.id);
     updateOrder.mutate(
-      { id: order.id, data: { ...order, status: STATUS_CYCLE[order.status] ?? "pending", dueDate: order.dueDate ? new Date(order.dueDate) : null } },
+      { id: order.id, data: { ...order, status: STATUS_CYCLE[order.status] ?? "pending", dueDate: order.dueDate ? new Date(order.dueDate).toISOString() : null } },
       { onSettled: () => setCyclingId(null) }
     );
   };
@@ -136,7 +135,7 @@ export default function WorkOrders() {
     const next = (order.priority ?? 1) >= 5 ? 1 : (order.priority ?? 1) + 1;
     setCyclingPriorityId(order.id);
     updateOrder.mutate(
-      { id: order.id, data: { ...order, priority: next, dueDate: order.dueDate ? new Date(order.dueDate) : null } },
+      { id: order.id, data: { ...order, priority: next, dueDate: order.dueDate ? new Date(order.dueDate).toISOString() : null } },
       { onSettled: () => setCyclingPriorityId(null) }
     );
   };
@@ -358,8 +357,8 @@ export default function WorkOrders() {
                             <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
                             <input
                               type="date"
-                              defaultValue={order.dueDate ? format(new Date(order.dueDate), "yyyy-MM-dd") : ""}
-                              onBlur={e => saveField(order, { dueDate: e.target.value ? new Date(e.target.value) : null })}
+                              defaultValue={order.dueDate ? new Date(order.dueDate).toISOString().split('T')[0] : ""}
+                              onBlur={e => saveField(order, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
                               className="text-sm bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[130px] cursor-pointer"
                               data-testid={`date-due-${order.id}`}
                             />
