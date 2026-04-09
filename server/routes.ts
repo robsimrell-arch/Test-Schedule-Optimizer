@@ -446,7 +446,8 @@ export async function registerRoutes(
     const workDaysParam = parseInt(req.query.workDays as string) || 7;
     const workDays: 5 | 6 | 7 = workDaysParam === 5 ? 5 : workDaysParam === 6 ? 6 : 7;
     
-    const orders = await storage.getOrders();
+    const allOrders = await storage.getOrders();
+    const orders = allOrders.filter(o => o.status === "scheduled");
     const equipmentList = await storage.getEquipment();
     const allCompatibility = await storage.getAllPartCompatibility();
     const chambers = await storage.getChambers();
