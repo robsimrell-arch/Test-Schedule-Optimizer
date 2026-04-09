@@ -50,7 +50,7 @@ export const workOrders = pgTable("work_orders", {
   workOrderNumber: text("work_order_number"), // User-assigned work order number/identifier
   partNumberId: integer("part_number_id").notNull(),
   quantity: integer("quantity").notNull(), // Total units to produce
-  priority: integer("priority").default(1), // Higher number = higher priority
+  priority: integer("priority").default(1), // Lower number = higher priority (e.g. 1 is highest)
   status: text("status").notNull().default("pending"), // pending, scheduled, completed
   dueDate: timestamp("due_date"),
   createdAt: timestamp("created_at").defaultNow(),
