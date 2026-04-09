@@ -869,6 +869,7 @@ function BomTab() {
   }
 
   const subAssemblies = parts?.filter(p => p.partNumber.toUpperCase().includes("CCA")) || [];
+  const finalAssemblies = parts?.filter(p => !p.partNumber.toUpperCase().includes("CCA")) || [];
 
   if (!parts || parts.length < 1) {
     return (
@@ -881,13 +882,17 @@ function BomTab() {
     );
   }
 
-  if (subAssemblies.length === 0) {
+  if (subAssemblies.length === 0 || finalAssemblies.length === 0) {
     return (
       <Card>
         <CardContent className="p-8 text-center">
           <GitMerge className="w-12 h-12 mx-auto mb-4 opacity-20" />
-          <p className="text-muted-foreground">No parts found with &ldquo;CCA&rdquo; in the name.</p>
-          <p className="text-xs text-muted-foreground mt-2">Only CCA parts can be used as sub-assemblies.</p>
+          <p className="text-muted-foreground">
+            {subAssemblies.length === 0 ? "No parts found with \"CCA\" in the name." : "No final assemblies found (parts without \"CCA\")."}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            The BOM matrix maps final assemblies to CCA sub-assemblies. Ensure you have both types of parts defined.
+          </p>
         </CardContent>
       </Card>
     );
@@ -938,8 +943,7 @@ function BomTab() {
           <GitMerge className="w-5 h-5" /> Sub-Assembly Dependencies (BOM)
         </CardTitle>
         <CardDescription>
-          Rows = <strong>Assembly (parent)</strong> · Columns = <strong>Sub-Assembly (child)</strong>.
-          Only parts with &ldquo;CCA&rdquo; in their name are shown as sub-assemblies.
+          Rows = <strong>Final Assembly</strong> (Non-CCA) · Columns = <strong>Sub-Assembly</strong> (CCA only).
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -957,16 +961,13 @@ function BomTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {parts.map(parent => (
+              {finalAssemblies.map(parent => (
                 <TableRow key={parent.id}>
                   <TableCell className="font-medium">
                     <div>{parent.partNumber}</div>
                     {parent.description && <div className="text-xs text-muted-foreground truncate max-w-[150px]">{parent.description}</div>}
                   </TableCell>
                   {subAssemblies.map(child => {
-                    if (parent.id === child.id) {
-                      return <TableCell key={child.id} className="text-center bg-muted/30 text-muted-foreground text-xs">—</TableCell>;
-                    }
                     const on = isDep(parent.id, child.id);
                     const key = `${parent.id}-${child.id}`;
                     return (
