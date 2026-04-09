@@ -237,7 +237,10 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
               id="chamberRequired"
               data-testid="checkbox-chamber-required"
               checked={chamberRequired}
-              onCheckedChange={(checked) => form.setValue("chamberRequired", !!checked)}
+              onCheckedChange={(checked) => {
+                form.setValue("chamberRequired", !!checked);
+                if (checked) form.setValue("durationMinutes", 0);
+              }}
             />
             <label htmlFor="chamberRequired" className="text-sm font-medium cursor-pointer flex items-center gap-2">
               <Thermometer className="w-4 h-4 text-primary" />
@@ -301,8 +304,17 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
             <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-step-order" />
           </div>
           <div className="space-y-2">
-            <Label>Duration (min)</Label>
-            <Input type="number" {...form.register("durationMinutes", { valueAsNumber: true })} data-testid="input-duration" />
+            <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (min)</Label>
+            <Input
+              type="number"
+              {...form.register("durationMinutes", { valueAsNumber: true })}
+              disabled={chamberRequired}
+              className={chamberRequired ? "opacity-50 cursor-not-allowed bg-muted" : ""}
+              data-testid="input-duration"
+            />
+            {chamberRequired && (
+              <p className="text-xs text-muted-foreground">Set per-chamber on the Chamber Compatibility page.</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label>Batch Size</Label>
@@ -381,7 +393,10 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
             id="edit-chamberRequired"
             data-testid="checkbox-edit-chamber-required"
             checked={chamberRequired}
-            onCheckedChange={(checked) => form.setValue("chamberRequired", !!checked)}
+            onCheckedChange={(checked) => {
+              form.setValue("chamberRequired", !!checked);
+              if (checked) form.setValue("durationMinutes", 0);
+            }}
           />
           <label htmlFor="edit-chamberRequired" className="text-sm font-medium cursor-pointer flex items-center gap-2">
             <Thermometer className="w-4 h-4 text-primary" />
@@ -441,8 +456,17 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
           <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-edit-step-order" />
         </div>
         <div className="space-y-2">
-          <Label>Duration (min)</Label>
-          <Input type="number" {...form.register("durationMinutes", { valueAsNumber: true })} data-testid="input-edit-duration" />
+          <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (min)</Label>
+          <Input
+            type="number"
+            {...form.register("durationMinutes", { valueAsNumber: true })}
+            disabled={chamberRequired}
+            className={chamberRequired ? "opacity-50 cursor-not-allowed bg-muted" : ""}
+            data-testid="input-edit-duration"
+          />
+          {chamberRequired && (
+            <p className="text-xs text-muted-foreground">Set per-chamber on the Chamber Compatibility page.</p>
+          )}
         </div>
         <div className="space-y-2">
           <Label>Batch Size</Label>
