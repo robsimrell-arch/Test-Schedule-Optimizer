@@ -190,6 +190,14 @@ export const api = {
           equipmentUsage: z.record(z.object({
             name: z.string(),
             usage: z.number()
+          })),
+          dueDateWarnings: z.array(z.object({
+            workOrderId: z.number(),
+            workOrderNumber: z.string().nullable(),
+            partNumber: z.string(),
+            dueDate: z.string(),
+            projectedCompletion: z.string(),
+            daysLate: z.number()
           }))
         }),
       },
