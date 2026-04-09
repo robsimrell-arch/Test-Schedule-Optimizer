@@ -382,8 +382,26 @@ function EditOrderForm({ order, onSuccess }: { order: any; onSuccess: () => void
 export default function WorkOrders() {
   const [isOpen, setIsOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<any>(null);
+  const [cyclingId, setCyclingId] = useState<number | null>(null);
   const { data: orders, isLoading } = useWorkOrders();
   const deleteOrder = useDeleteWorkOrder();
+  const updateOrder = useUpdateWorkOrder();
+
+  const STATUS_CYCLE: Record<string, string> = {
+    pending: "scheduled",
+    scheduled: "completed",
+    completed: "pending",
+  };
+
+  const cycleStatus = (order: any) => {
+    if (cyclingId === order.id) return;
+    const next = STATUS_CYCLE[order.status] ?? "pending";
+    setCyclingId(order.id);
+    updateOrder.mutate(
+      { id: order.id, data: { ...order, status: next, dueDate: order.dueDate ? new Date(order.dueDate) : null } },
+      { onSettled: () => setCyclingId(null) }
+    );
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -483,8 +501,14 @@ export default function WorkOrders() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={`${getStatusColor(order.status)} border capitalize`}>
-                        {order.status}
+                      <Badge
+                        variant="outline"
+                        className={`${getStatusColor(order.status)} border capitalize cursor-pointer select-none hover:opacity-80 active:scale-95 transition-all`}
+                        onClick={() => cycleStatus(order)}
+                        title="Click to change status"
+                        data-testid={`badge-status-${order.id}`}
+                      >
+                        {cyclingId === order.id ? "…" : order.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
