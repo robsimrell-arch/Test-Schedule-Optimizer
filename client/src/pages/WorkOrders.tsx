@@ -273,7 +273,9 @@ export default function WorkOrders() {
                 )}
 
                 {/* ── Saved orders ─────────────────────────────── */}
-                {orders?.map((order) => {
+                {[...(orders || [])]
+                  .sort((a, b) => getDisplayId(a).localeCompare(getDisplayId(b)))
+                  .map((order) => {
                   const expanded = expandedId === order.id;
                   return (
                     <React.Fragment key={order.id}>
