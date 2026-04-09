@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Layout } from "@/components/Layout";
 import { useWorkOrders, useCreateWorkOrder, useUpdateWorkOrder, useDeleteWorkOrder, useParts } from "@/hooks/use-manufacturing";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -282,7 +282,7 @@ export default function WorkOrders() {
                 {orders?.map((order) => {
                   const expanded = expandedId === order.id;
                   return (
-                    <>
+                    <React.Fragment key={order.id}>
                       <TableRow key={order.id} className="group">
 
                         {/* Expand toggle */}
@@ -399,7 +399,7 @@ export default function WorkOrders() {
 
                       {/* Expandable step offsets row */}
                       {expanded && <StepOffsetRow order={order} colSpan={COL_SPAN} />}
-                    </>
+                    </React.Fragment>
                   );
                 })}
                 {orders?.length === 0 && (
