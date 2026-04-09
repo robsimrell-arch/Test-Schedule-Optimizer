@@ -184,7 +184,7 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
       partNumberId: partId,
       stepOrder: 1,
       name: "",
-      durationMinutes: 60,
+      durationHours: 1.0,
       batchSize: 1,
       chamberRequired: false,
       equipmentRequirements: [] as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
@@ -215,7 +215,9 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
   };
 
   const onSubmit = (data: any) => {
-    create.mutate({ ...data, partNumberId: partId }, { onSuccess: () => {
+    const { durationHours, ...rest } = data;
+    const durationMinutes = Math.round((parseFloat(durationHours) || 0) * 60);
+    create.mutate({ ...rest, durationMinutes, partNumberId: partId }, { onSuccess: () => {
       form.reset();
       onSuccess();
     } });
@@ -304,10 +306,12 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
             <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-step-order" />
           </div>
           <div className="space-y-2">
-            <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (min)</Label>
+            <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (hrs)</Label>
             <Input
               type="number"
-              {...form.register("durationMinutes", { valueAsNumber: true })}
+              step="0.1"
+              min={0.1}
+              {...form.register("durationHours", { valueAsNumber: true })}
               disabled={chamberRequired}
               className={chamberRequired ? "opacity-50 cursor-not-allowed bg-muted" : ""}
               data-testid="input-duration"
@@ -345,7 +349,7 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
     defaultValues: {
       stepOrder: step.stepOrder,
       name: step.name || "",
-      durationMinutes: step.durationMinutes,
+      durationHours: (step.durationMinutes || 0) / 60,
       batchSize: step.batchSize,
       chamberRequired: step.chamberRequired || false,
       equipmentRequirements: initialEquipmentReqs as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
@@ -376,7 +380,9 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
   };
 
   const onSubmit = (data: any) => {
-    update.mutate({ id: step.id, partId, data }, { onSuccess });
+    const { durationHours, ...rest } = data;
+    const durationMinutes = Math.round((parseFloat(durationHours) || 0) * 60);
+    update.mutate({ id: step.id, partId, data: { ...rest, durationMinutes } }, { onSuccess });
   };
 
   if (!equipment) return null;
@@ -456,10 +462,12 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
           <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-edit-step-order" />
         </div>
         <div className="space-y-2">
-          <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (min)</Label>
+          <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (hrs)</Label>
           <Input
             type="number"
-            {...form.register("durationMinutes", { valueAsNumber: true })}
+            step="0.1"
+            min={0.1}
+            {...form.register("durationHours", { valueAsNumber: true })}
             disabled={chamberRequired}
             className={chamberRequired ? "opacity-50 cursor-not-allowed bg-muted" : ""}
             data-testid="input-edit-duration"
@@ -652,7 +660,7 @@ function ChamberCompatibilityTab() {
               <Thermometer className="w-5 h-5" /> Chamber Compatibility Matrix
             </CardTitle>
             <CardDescription className="mt-1.5">
-              Configure which parts can be tested in which ESS chambers, set chamber-specific test durations, and changeover times when switching parts.
+              Configure which parts can be tested in which ESS chambers, set chamber-specific test durations (in hours), and changeover times (in hours) when switching parts.
             </CardDescription>
           </div>
           <Dialog open={addChamberOpen} onOpenChange={setAddChamberOpen}>
@@ -787,33 +795,35 @@ function ChamberCompatibilityTab() {
                                 <Label className="text-xs text-muted-foreground w-20">Duration:</Label>
                                 <Input
                                   type="number"
-                                  min={1}
-                                  value={compat.durationMinutes ?? ""}
+                                  step="0.1"
+                                  min={0.1}
+                                  value={compat.durationMinutes ? (compat.durationMinutes / 60).toFixed(1).replace(/\.0$/, '') : ""}
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    updateDuration(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
+                                    updateDuration(part.id, chamber.id, val === "" ? null : Math.round(parseFloat(val) * 60) || null);
                                   }}
                                   placeholder="Default"
                                   className="w-24 h-7 text-xs"
                                   data-testid={`duration-${part.id}-${chamber.id}`}
                                 />
-                                <span className="text-xs text-muted-foreground">min</span>
+                                <span className="text-xs text-muted-foreground">hrs</span>
                               </div>
                               <div className="flex items-center gap-1">
                                 <Label className="text-xs text-muted-foreground w-20">Changeover:</Label>
                                 <Input
                                   type="number"
+                                  step="0.1"
                                   min={0}
-                                  value={compat.changeoverMinutes ?? ""}
+                                  value={compat.changeoverMinutes ? (compat.changeoverMinutes / 60).toFixed(1).replace(/\.0$/, '') : ""}
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    updateChangeover(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
+                                    updateChangeover(part.id, chamber.id, val === "" ? null : Math.round(parseFloat(val) * 60) || null);
                                   }}
                                   placeholder="0"
                                   className="w-24 h-7 text-xs"
                                   data-testid={`changeover-${part.id}-${chamber.id}`}
                                 />
-                                <span className="text-xs text-muted-foreground">min</span>
+                                <span className="text-xs text-muted-foreground">hrs</span>
                               </div>
                             </div>
                           )}
@@ -1361,7 +1371,7 @@ export default function Inventory() {
                                   ).filter(Boolean).join(", ") || (step.chamberRequired ? "" : "No Equipment Required")}
                                 </div>
                                 <div className="text-xs text-muted-foreground flex gap-3 mt-1">
-                                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {step.durationMinutes}m</span>
+                                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {(step.durationMinutes / 60).toFixed(1).replace(/\.0$/, '')}h</span>
                                   <span className="flex items-center gap-1"><Box className="w-3 h-3" /> Batch: {step.batchSize}</span>
                                 </div>
                               </div>
