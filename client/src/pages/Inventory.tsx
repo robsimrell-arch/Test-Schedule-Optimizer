@@ -694,7 +694,7 @@ function ChamberCompatibilityTab() {
               <TableRow>
                 <TableHead className="min-w-[150px]">Part Number</TableHead>
                 {chambers.map(chamber => (
-                  <TableHead key={chamber.id} className="text-center min-w-[180px]">
+                  <TableHead key={chamber.id} className="text-center min-w-[220px]">
                     {editingChamberId === chamber.id ? (
                       <Input
                         autoFocus
@@ -760,7 +760,7 @@ function ChamberCompatibilityTab() {
                           {isCompatible && (
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-1">
-                                <Label className="text-xs text-muted-foreground w-16">Duration:</Label>
+                                <Label className="text-xs text-muted-foreground w-20">Duration:</Label>
                                 <Input
                                   type="number"
                                   min={1}
@@ -770,13 +770,13 @@ function ChamberCompatibilityTab() {
                                     updateDuration(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
                                   }}
                                   placeholder="Default"
-                                  className="w-16 h-7 text-xs"
+                                  className="w-24 h-7 text-xs"
                                   data-testid={`duration-${part.id}-${chamber.id}`}
                                 />
                                 <span className="text-xs text-muted-foreground">min</span>
                               </div>
                               <div className="flex items-center gap-1">
-                                <Label className="text-xs text-muted-foreground w-16">Changeover:</Label>
+                                <Label className="text-xs text-muted-foreground w-20">Changeover:</Label>
                                 <Input
                                   type="number"
                                   min={0}
@@ -786,7 +786,7 @@ function ChamberCompatibilityTab() {
                                     updateChangeover(part.id, chamber.id, val === "" ? null : parseInt(val) || null);
                                   }}
                                   placeholder="0"
-                                  className="w-16 h-7 text-xs"
+                                  className="w-24 h-7 text-xs"
                                   data-testid={`changeover-${part.id}-${chamber.id}`}
                                 />
                                 <span className="text-xs text-muted-foreground">min</span>

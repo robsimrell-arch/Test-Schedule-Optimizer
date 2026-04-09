@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: optiflow
+    name: test-schedule-optimizer
     runtime: node
     region: oregon
     plan: free
