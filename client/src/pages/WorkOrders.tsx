@@ -383,7 +383,9 @@ export default function WorkOrders() {
   const [isOpen, setIsOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [cyclingId, setCyclingId] = useState<number | null>(null);
+  const [cyclingPriorityId, setCyclingPriorityId] = useState<number | null>(null);
   const { data: orders, isLoading } = useWorkOrders();
+  const { data: parts } = useParts();
   const deleteOrder = useDeleteWorkOrder();
   const updateOrder = useUpdateWorkOrder();
 
@@ -391,6 +393,17 @@ export default function WorkOrders() {
     pending: "scheduled",
     scheduled: "completed",
     completed: "pending",
+  };
+
+  const saveField = (order: any, patch: Record<string, any>) => {
+    updateOrder.mutate({
+      id: order.id,
+      data: {
+        ...order,
+        dueDate: order.dueDate ? new Date(order.dueDate) : null,
+        ...patch,
+      },
+    });
   };
 
   const cycleStatus = (order: any) => {
@@ -403,6 +416,16 @@ export default function WorkOrders() {
     );
   };
 
+  const cyclePriority = (order: any) => {
+    if (cyclingPriorityId === order.id) return;
+    const next = order.priority >= 5 ? 1 : (order.priority ?? 1) + 1;
+    setCyclingPriorityId(order.id);
+    updateOrder.mutate(
+      { id: order.id, data: { ...order, priority: next, dueDate: order.dueDate ? new Date(order.dueDate) : null } },
+      { onSettled: () => setCyclingPriorityId(null) }
+    );
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "completed": return "bg-green-100 text-green-700 border-green-200";
@@ -412,11 +435,16 @@ export default function WorkOrders() {
     }
   };
 
+  const getPriorityColor = (p: number) => {
+    if (p <= 1) return "border-red-300 text-red-700 bg-red-50 font-bold";
+    if (p <= 2) return "border-orange-300 text-orange-600 bg-orange-50 font-semibold";
+    if (p <= 3) return "border-yellow-300 text-yellow-700 bg-yellow-50";
+    return "border-gray-200 text-gray-600 bg-gray-50";
+  };
+
   const getDisplayId = (order: any) => {
-    if (order.workOrderNumber) {
-      return order.workOrderNumber;
-    }
-    return `WO-${order.id.toString().padStart(4, '0')}`;
+    if (order.workOrderNumber) return order.workOrderNumber;
+    return `WO-${order.id.toString().padStart(4, "0")}`;
   };
 
   return (
@@ -483,23 +511,58 @@ export default function WorkOrders() {
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {getDisplayId(order)}
                     </TableCell>
-                    <TableCell className="font-medium">{order.partNumber?.partNumber || "Unknown"}</TableCell>
-                    <TableCell>{order.quantity} units</TableCell>
+
+                    {/* Part Number — inline select */}
                     <TableCell>
-                      <Badge variant="outline" className={order.priority && order.priority <= 3 ? "border-orange-200 text-orange-600 bg-orange-50 font-semibold" : ""}>
-                        P{order.priority}
+                      <Select
+                        value={order.partNumberId?.toString()}
+                        onValueChange={(val) => saveField(order, { partNumberId: Number(val) })}
+                      >
+                        <SelectTrigger className="h-8 text-sm border-transparent hover:border-input bg-transparent w-[140px]" data-testid={`select-part-${order.id}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {parts?.map((p) => (
+                            <SelectItem key={p.id} value={p.id.toString()}>{p.partNumber}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+
+                    <TableCell>{order.quantity} units</TableCell>
+
+                    {/* Priority — click to cycle P1–P5 */}
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`${getPriorityColor(order.priority ?? 1)} border cursor-pointer select-none hover:opacity-80 active:scale-95 transition-all`}
+                        onClick={() => cyclePriority(order)}
+                        title="Click to change priority"
+                        data-testid={`badge-priority-${order.id}`}
+                      >
+                        {cyclingPriorityId === order.id ? "…" : `P${order.priority}`}
                       </Badge>
                     </TableCell>
+
+                    {/* Due Date — inline date picker */}
                     <TableCell>
-                      {order.dueDate ? (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="w-3 h-3 text-muted-foreground" />
-                          {format(new Date(order.dueDate), "MMM dd, yyyy")}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-xs italic">No date</span>
-                      )}
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <input
+                          type="date"
+                          defaultValue={order.dueDate ? format(new Date(order.dueDate), "yyyy-MM-dd") : ""}
+                          onBlur={(e) => {
+                            const val = e.target.value;
+                            const newDate = val ? new Date(val) : null;
+                            saveField(order, { dueDate: newDate });
+                          }}
+                          className="text-sm bg-transparent border-0 border-b border-transparent hover:border-input focus:border-input focus:outline-none w-[130px] cursor-pointer"
+                          data-testid={`date-due-${order.id}`}
+                        />
+                      </div>
                     </TableCell>
+
+                    {/* Status — click to cycle */}
                     <TableCell>
                       <Badge
                         variant="outline"
@@ -511,6 +574,7 @@ export default function WorkOrders() {
                         {cyclingId === order.id ? "…" : order.status}
                       </Badge>
                     </TableCell>
+
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button
