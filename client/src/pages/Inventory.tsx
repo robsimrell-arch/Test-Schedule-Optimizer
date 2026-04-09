@@ -184,7 +184,7 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
       partNumberId: partId,
       stepOrder: 1,
       name: "",
-      durationHours: 1.0,
+      durationMinutes: 60,
       batchSize: 1,
       chamberRequired: false,
       equipmentRequirements: [] as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
@@ -215,9 +215,7 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
   };
 
   const onSubmit = (data: any) => {
-    const { durationHours, ...rest } = data;
-    const durationMinutes = Math.round((parseFloat(durationHours) || 0) * 60);
-    create.mutate({ ...rest, durationMinutes, partNumberId: partId }, { onSuccess: () => {
+    create.mutate({ ...data, partNumberId: partId }, { onSuccess: () => {
       form.reset();
       onSuccess();
     } });
@@ -306,12 +304,10 @@ function StepForm({ partId, onSuccess }: { partId: number; onSuccess: () => void
             <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-step-order" />
           </div>
           <div className="space-y-2">
-            <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (hrs)</Label>
+            <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (min)</Label>
             <Input
               type="number"
-              step="0.1"
-              min={0.1}
-              {...form.register("durationHours", { valueAsNumber: true })}
+              {...form.register("durationMinutes", { valueAsNumber: true })}
               disabled={chamberRequired}
               className={chamberRequired ? "opacity-50 cursor-not-allowed bg-muted" : ""}
               data-testid="input-duration"
@@ -349,7 +345,7 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
     defaultValues: {
       stepOrder: step.stepOrder,
       name: step.name || "",
-      durationHours: (step.durationMinutes || 0) / 60,
+      durationMinutes: step.durationMinutes,
       batchSize: step.batchSize,
       chamberRequired: step.chamberRequired || false,
       equipmentRequirements: initialEquipmentReqs as { equipmentId: number; quantityRequired: number; durationMinutes: number | null }[],
@@ -380,9 +376,7 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
   };
 
   const onSubmit = (data: any) => {
-    const { durationHours, ...rest } = data;
-    const durationMinutes = Math.round((parseFloat(durationHours) || 0) * 60);
-    update.mutate({ id: step.id, partId, data: { ...rest, durationMinutes } }, { onSuccess });
+    update.mutate({ id: step.id, partId, data }, { onSuccess });
   };
 
   if (!equipment) return null;
@@ -462,12 +456,10 @@ function EditStepForm({ step, partId, onSuccess }: { step: any; partId: number; 
           <Input type="number" {...form.register("stepOrder", { valueAsNumber: true })} data-testid="input-edit-step-order" />
         </div>
         <div className="space-y-2">
-          <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (hrs)</Label>
+          <Label className={chamberRequired ? "text-muted-foreground" : ""}>Duration (min)</Label>
           <Input
             type="number"
-            step="0.1"
-            min={0.1}
-            {...form.register("durationHours", { valueAsNumber: true })}
+            {...form.register("durationMinutes", { valueAsNumber: true })}
             disabled={chamberRequired}
             className={chamberRequired ? "opacity-50 cursor-not-allowed bg-muted" : ""}
             data-testid="input-edit-duration"
@@ -1371,7 +1363,7 @@ export default function Inventory() {
                                   ).filter(Boolean).join(", ") || (step.chamberRequired ? "" : "No Equipment Required")}
                                 </div>
                                 <div className="text-xs text-muted-foreground flex gap-3 mt-1">
-                                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {(step.durationMinutes / 60).toFixed(1).replace(/\.0$/, '')}h</span>
+                                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {step.durationMinutes}m</span>
                                   <span className="flex items-center gap-1"><Box className="w-3 h-3" /> Batch: {step.batchSize}</span>
                                 </div>
                               </div>
