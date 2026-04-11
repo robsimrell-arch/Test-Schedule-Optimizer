@@ -706,6 +706,7 @@ export async function registerRoutes(
       );
 
       let selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[] = [];
+      // Start with minStartTime so equipment slots are compared against unit availability too
       let machinesReadyAt = new Date(minStartTime);
       
       // Find non-chamber equipment
@@ -765,8 +766,8 @@ export async function registerRoutes(
               }
             }
             
-            // Calculate effective available time including changeover
-            const baseAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime()));
+            // Calculate effective available time: max of chamber slot, non-chamber machines ready, and unit readiness
+            const baseAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime(), minStartTime.getTime()));
             // Apply changeover using working minutes and then ensure start is in working hours
             // (Chamber steps must START during working hours, but changeover is setup time)
             const afterChangeover = changeoverTime > 0 
