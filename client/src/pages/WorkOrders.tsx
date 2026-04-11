@@ -183,16 +183,16 @@ export default function WorkOrders() {
             </div>
           ) : (
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm shadow-sm">
                 <TableRow>
-                  <TableHead className="w-8"></TableHead>
-                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Order ID / WO#</TableHead>
-                  <TableHead className="min-w-[280px] px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Part Number</TableHead>
-                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 text-right">Qty</TableHead>
-                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 text-center">Pri</TableHead>
-                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Due Date</TableHead>
-                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Status</TableHead>
-                  <TableHead className="text-right px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Actions</TableHead>
+                  <TableHead className="w-8 sticky top-0 bg-inherit"></TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 sticky top-0 bg-inherit whitespace-nowrap">Order ID / WO#</TableHead>
+                  <TableHead className="min-w-[280px] px-2 text-[10px] uppercase font-bold text-muted-foreground/70 sticky top-0 bg-inherit">Part Number</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 text-right sticky top-0 bg-inherit">Qty</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 text-center sticky top-0 bg-inherit">Pri</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 sticky top-0 bg-inherit">Due Date</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 sticky top-0 bg-inherit">Status</TableHead>
+                  <TableHead className="text-right px-2 text-[10px] uppercase font-bold text-muted-foreground/70 sticky top-0 bg-inherit">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
