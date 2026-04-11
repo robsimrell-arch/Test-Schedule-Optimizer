@@ -871,6 +871,28 @@ export async function registerRoutes(
         const eq = equipmentList.find(e => e.id === u.eqId);
         return eq?.name || "Unknown";
       }).join(", ");
+
+      // === DIAGNOSTIC LOGGING ===
+      const minTimeForLog = getMinStartTimeForBatch(batch);
+      const isChamberStep = batch.step.chamberRequired;
+      if (isChamberStep) {
+        const nonChamberEqIds = (batch.step.equipmentRequirements || [])
+          .filter((r: any) => !chamberIds.has(r.equipmentId))
+          .map((r: any) => {
+            const eq = equipmentList.find(e => e.id === r.equipmentId);
+            const avail = machineAvailability[r.equipmentId];
+            return `${eq?.name || r.equipmentId}[avail=${avail?.map(d => d.toISOString().slice(11,16)).join('|')}]`;
+          }).join(', ');
+        console.log(
+          `[SCHED] ${batch.partNumber} step${batch.stepOrder}(${batch.step.name||'?'}) b${batch.batchIndex}` +
+          ` | minStart=${minTimeForLog.toISOString().slice(5,16)}` +
+          ` | start=${slot!.startTime.toISOString().slice(5,16)}` +
+          ` | end=${slot!.endTime.toISOString().slice(5,16)}` +
+          ` | eq=[${usedEquipmentNames}]` +
+          ` | nonChamberEq: ${nonChamberEqIds || 'none'}`
+        );
+      }
+      // === END DIAGNOSTIC LOGGING ===
       
       // Create task ID that includes batch info for multi-batch steps
       const taskId = batch.totalBatches > 1 
