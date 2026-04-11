@@ -44,10 +44,39 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Dashboard() {
-  const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(1);
-  const [workDays, setWorkDays] = useState<5 | 6 | 7>(5);
+  const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(() => {
+    const saved = localStorage.getItem("ts-optimizer-shiftMode");
+    return saved ? (Number(saved) as 1 | 2 | 3) : 1;
+  });
+  const [workDays, setWorkDays] = useState<5 | 6 | 7>(() => {
+    const saved = localStorage.getItem("ts-optimizer-workDays");
+    return saved ? (Number(saved) as 5 | 6 | 7) : 5;
+  });
   const { data: schedule, isLoading, isError } = useSchedule(shiftMode, workDays);
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Week);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem("ts-optimizer-viewMode");
+    return saved && Object.values(ViewMode).includes(saved as ViewMode) 
+      ? (saved as ViewMode) 
+      : ViewMode.Week;
+  });
+
+  const handleShiftChange = (v: string) => {
+    const mode = Number(v) as 1 | 2 | 3;
+    setShiftMode(mode);
+    localStorage.setItem("ts-optimizer-shiftMode", String(mode));
+  };
+
+  const handleWorkDaysChange = (v: string) => {
+    const days = Number(v) as 5 | 6 | 7;
+    setWorkDays(days);
+    localStorage.setItem("ts-optimizer-workDays", String(days));
+  };
+
+  const handleViewModeChange = (v: string) => {
+    const mode = v as ViewMode;
+    setViewMode(mode);
+    localStorage.setItem("ts-optimizer-viewMode", mode);
+  };
 
   if (isLoading) {
     return (
@@ -209,7 +238,7 @@ export default function Dashboard() {
                 <Label className="text-sm font-medium">Work Week</Label>
                 <Select 
                   value={String(workDays)} 
-                  onValueChange={(v) => setWorkDays(Number(v) as 5 | 6 | 7)}
+                  onValueChange={handleWorkDaysChange}
                 >
                   <SelectTrigger className="w-[100px] h-8" data-testid="select-work-days">
                     <SelectValue />
@@ -226,7 +255,7 @@ export default function Dashboard() {
                 <Label className="text-sm font-medium">Shifts</Label>
                 <Select
                   value={String(shiftMode)}
-                  onValueChange={(v) => setShiftMode(Number(v) as 1 | 2 | 3)}
+                  onValueChange={handleShiftChange}
                 >
                   <SelectTrigger className="w-[140px]" data-testid="select-shift-mode">
                     <SelectValue />
@@ -238,7 +267,7 @@ export default function Dashboard() {
                   </SelectContent>
                 </Select>
               </div>
-              <Tabs defaultValue={ViewMode.Week} onValueChange={(v) => setViewMode(v as ViewMode)}>
+              <Tabs value={viewMode} onValueChange={handleViewModeChange}>
                 <TabsList>
                   <TabsTrigger value={ViewMode.QuarterDay}>Hour</TabsTrigger>
                   <TabsTrigger value={ViewMode.HalfDay}>12h</TabsTrigger>
