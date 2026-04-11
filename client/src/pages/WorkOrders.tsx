@@ -187,7 +187,7 @@ export default function WorkOrders() {
                 <TableRow>
                   <TableHead className="w-8"></TableHead>
                   <TableHead>Order ID / WO#</TableHead>
-                  <TableHead>Part Number</TableHead>
+                  <TableHead className="min-w-[280px]">Part Number</TableHead>
                   <TableHead>Quantity</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Due Date</TableHead>
@@ -216,7 +216,7 @@ export default function WorkOrders() {
                     {/* Part # — selecting triggers save */}
                     <TableCell>
                       <Select onValueChange={val => commitDraft(Number(val))}>
-                        <SelectTrigger className="h-8 text-sm border-dashed border-muted-foreground/40 bg-transparent min-w-[180px] max-w-xs text-muted-foreground">
+                        <SelectTrigger className="h-8 text-sm border-dashed border-muted-foreground/40 bg-transparent min-w-[280px] text-muted-foreground">
                           <SelectValue placeholder="Part #" />
                         </SelectTrigger>
                         <SelectContent>
@@ -313,7 +313,7 @@ export default function WorkOrders() {
                             value={order.partNumberId?.toString()}
                             onValueChange={val => saveField(order, { partNumberId: Number(val) })}
                           >
-                            <SelectTrigger className="h-8 text-sm border-transparent hover:border-input bg-transparent min-w-[180px] max-w-xs" data-testid={`select-part-${order.id}`}>
+                            <SelectTrigger className="h-8 text-sm border-transparent hover:border-input bg-transparent min-w-[280px]" data-testid={`select-part-${order.id}`}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
