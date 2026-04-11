@@ -183,8 +183,8 @@ export default function WorkOrders() {
             </div>
           ) : (
             <Table>
-              <TableHeader className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm shadow-sm">
-                <TableRow>
+              <TableHeader className="sticky top-0 z-30 bg-card shadow-md">
+                <TableRow className="border-b-2">
                   <TableHead className="w-8 sticky top-0 bg-inherit"></TableHead>
                   <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 sticky top-0 bg-inherit whitespace-nowrap">Order ID / WO#</TableHead>
                   <TableHead className="min-w-[280px] px-2 text-[10px] uppercase font-bold text-muted-foreground/70 sticky top-0 bg-inherit">Part Number</TableHead>
