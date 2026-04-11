@@ -186,13 +186,13 @@ export default function WorkOrders() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-8"></TableHead>
-                  <TableHead>Order ID / WO#</TableHead>
-                  <TableHead className="min-w-[280px]">Part Number</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Order ID / WO#</TableHead>
+                  <TableHead className="min-w-[280px] px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Part Number</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 text-right">Qty</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70 text-center">Pri</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Due Date</TableHead>
+                  <TableHead className="px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Status</TableHead>
+                  <TableHead className="text-right px-2 text-[10px] uppercase font-bold text-muted-foreground/70">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -203,20 +203,20 @@ export default function WorkOrders() {
                     <TableCell className="p-1 w-8" />
 
                     {/* WO Number */}
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-[10px] px-2">
                       <input
                         type="text"
                         value={draft.workOrderNumber}
                         onChange={e => setDraft(d => d ? { ...d, workOrderNumber: e.target.value } : d)}
-                        className="bg-transparent border-0 border-b border-input focus:border-primary focus:outline-none w-[130px] text-xs"
+                        className="bg-transparent border-0 border-b border-input focus:border-primary focus:outline-none w-[90px] text-[10px]"
                         placeholder="WO-YYYY-NNNN"
                       />
                     </TableCell>
 
                     {/* Part # — selecting triggers save */}
-                    <TableCell>
+                    <TableCell className="px-2">
                       <Select onValueChange={val => commitDraft(Number(val))}>
-                        <SelectTrigger className="h-8 text-sm border-dashed border-muted-foreground/40 bg-transparent min-w-[280px] text-muted-foreground">
+                        <SelectTrigger className="h-7 text-xs border-dashed border-muted-foreground/40 bg-transparent min-w-[280px] text-muted-foreground">
                           <SelectValue placeholder="Part #" />
                         </SelectTrigger>
                         <SelectContent>
@@ -228,38 +228,32 @@ export default function WorkOrders() {
                     </TableCell>
 
                     {/* Quantity */}
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number" min={1}
-                          value={draft.quantity}
-                          onChange={e => setDraft(d => d ? { ...d, quantity: Number(e.target.value) || 1 } : d)}
-                          className="bg-transparent border-0 border-b border-input focus:border-primary focus:outline-none w-14 text-sm text-right"
-                        />
-                        <span className="text-xs text-muted-foreground">units</span>
-                      </div>
+                    <TableCell className="px-2 text-right">
+                      <input
+                        type="number" min={1}
+                        value={draft.quantity}
+                        onChange={e => setDraft(d => d ? { ...d, quantity: Number(e.target.value) || 1 } : d)}
+                        className="bg-transparent border-0 border-b border-input focus:border-primary focus:outline-none w-10 text-xs text-right"
+                      />
                     </TableCell>
 
                     {/* Priority badge (static for draft) */}
-                    <TableCell>
-                      <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50 font-bold">P1</Badge>
+                    <TableCell className="px-2 text-center">
+                      <Badge variant="outline" className="border-red-300 text-red-700 bg-red-50 text-[10px] font-bold px-1 h-5">P1</Badge>
                     </TableCell>
 
                     {/* Due Date */}
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
-                        <input
-                          type="date"
-                          onChange={e => setDraft(d => d ? { ...d, dueDate: e.target.value ? new Date(e.target.value) : null } : d)}
-                          className="text-sm bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[130px] cursor-pointer"
-                        />
-                      </div>
+                    <TableCell className="px-2">
+                      <input
+                        type="date"
+                        onChange={e => setDraft(d => d ? { ...d, dueDate: e.target.value ? new Date(e.target.value) : null } : d)}
+                        className="text-xs bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[100px] cursor-pointer"
+                      />
                     </TableCell>
 
                     {/* Status */}
-                    <TableCell>
-                      <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-200 border capitalize">pending</Badge>
+                    <TableCell className="px-2">
+                      <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-200 border capitalize text-[10px] px-1 h-5">pending</Badge>
                     </TableCell>
 
                     {/* Discard */}
@@ -295,25 +289,25 @@ export default function WorkOrders() {
                         </TableCell>
 
                         {/* WO Number — inline text */}
-                        <TableCell className="font-mono text-xs">
+                        <TableCell className="font-mono text-[10px] px-2">
                           <input
                             type="text"
                             defaultValue={order.workOrderNumber ?? ""}
                             placeholder={`WO-${order.id.toString().padStart(4, "0")}`}
                             onBlur={e => saveField(order, { workOrderNumber: e.target.value.trim() || null })}
                             onKeyDown={e => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                            className="bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[120px] text-xs"
+                            className="bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[90px] text-[10px]"
                             data-testid={`input-wo-${order.id}`}
                           />
                         </TableCell>
 
                         {/* Part Number — inline select */}
-                        <TableCell>
+                        <TableCell className="px-2">
                           <Select
                             value={order.partNumberId?.toString()}
                             onValueChange={val => saveField(order, { partNumberId: Number(val) })}
                           >
-                            <SelectTrigger className="h-8 text-sm border-transparent hover:border-input bg-transparent min-w-[280px]" data-testid={`select-part-${order.id}`}>
+                            <SelectTrigger className="h-7 text-xs border-transparent hover:border-input bg-transparent min-w-[280px]" data-testid={`select-part-${order.id}`}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -323,26 +317,23 @@ export default function WorkOrders() {
                         </TableCell>
 
                         {/* Quantity — inline number */}
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              min={1}
-                              defaultValue={order.quantity}
-                              onBlur={e => saveField(order, { quantity: Number(e.target.value) || 1 })}
-                              onKeyDown={e => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                              className="bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-14 text-sm text-right"
-                              data-testid={`input-qty-${order.id}`}
-                            />
-                            <span className="text-xs text-muted-foreground">units</span>
-                          </div>
+                        <TableCell className="px-2 text-right">
+                          <input
+                            type="number"
+                            min={1}
+                            defaultValue={order.quantity}
+                            onBlur={e => saveField(order, { quantity: Number(e.target.value) || 1 })}
+                            onKeyDown={e => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                            className="bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-10 text-xs text-right"
+                            data-testid={`input-qty-${order.id}`}
+                          />
                         </TableCell>
 
                         {/* Priority — click to cycle P1–P5 */}
-                        <TableCell>
+                        <TableCell className="px-2 text-center">
                           <Badge
                             variant="outline"
-                            className={`${getPriorityColor(order.priority ?? 1)} border cursor-pointer select-none hover:opacity-80 active:scale-95 transition-all`}
+                            className={`${getPriorityColor(order.priority ?? 1)} border cursor-pointer select-none hover:opacity-80 active:scale-95 transition-all text-[10px] px-1 h-5`}
                             onClick={() => cyclePriority(order)}
                             title="Click to change priority"
                             data-testid={`badge-priority-${order.id}`}
@@ -352,24 +343,21 @@ export default function WorkOrders() {
                         </TableCell>
 
                         {/* Due Date — inline date picker */}
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
-                            <input
-                              type="date"
-                              defaultValue={order.dueDate ? new Date(order.dueDate).toISOString().split('T')[0] : ""}
-                              onBlur={e => saveField(order, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
-                              className="text-sm bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[130px] cursor-pointer"
-                              data-testid={`date-due-${order.id}`}
-                            />
-                          </div>
+                        <TableCell className="px-2">
+                          <input
+                            type="date"
+                            defaultValue={order.dueDate ? new Date(order.dueDate).toISOString().split('T')[0] : ""}
+                            onBlur={e => saveField(order, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                            className="text-xs bg-transparent border-0 border-b border-transparent hover:border-input focus:border-primary focus:outline-none w-[100px] cursor-pointer"
+                            data-testid={`date-due-${order.id}`}
+                          />
                         </TableCell>
 
                         {/* Status — click to cycle */}
-                        <TableCell>
+                        <TableCell className="px-2">
                           <Badge
                             variant="outline"
-                            className={`${getStatusColor(order.status)} border capitalize cursor-pointer select-none hover:opacity-80 active:scale-95 transition-all`}
+                            className={`${getStatusColor(order.status)} border capitalize cursor-pointer select-none hover:opacity-80 active:scale-95 transition-all text-[10px] px-1 h-5`}
                             onClick={() => cycleStatus(order)}
                             title="Click to change status"
                             data-testid={`badge-status-${order.id}`}
