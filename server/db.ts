@@ -4,16 +4,18 @@ import * as schema from "@shared/schema";
 
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
+const dbUrl = process.env.DATABASE_URL || "";
+
+if (!dbUrl) {
+  console.warn(
     "DATABASE_URL must be set. Did you forget to provision a database?",
   );
 }
 
-const isNeon = process.env.DATABASE_URL.includes("neon.tech");
+const isNeon = dbUrl.includes("neon.tech");
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: dbUrl || undefined,
   ssl: isNeon ? { rejectUnauthorized: false } : false,
 });
 export const db = drizzle(pool, { schema });
