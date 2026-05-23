@@ -452,6 +452,11 @@ export async function registerRoutes(
     const allCompatibility = await storage.getAllPartCompatibility();
     const chambers = await storage.getChambers();
     const allBomDeps = await storage.getAllPartDependencies();
+    const allParts = await storage.getParts();
+    const partsMap = new Map<number, typeof allParts[number]>();
+    for (const part of allParts) {
+      partsMap.set(part.id, part);
+    }
 
     // Build BOM lookup: parentPartId -> [{ childPartId, quantityRequired }]
     const bomMap: Record<number, { childPartId: number; quantityRequired: number }[]> = {};
@@ -534,7 +539,7 @@ export async function registerRoutes(
     const batchCompletions: Record<number, Record<number, { endTime: Date; unitsCompleted: number }[]>> = {};
     
     for (const order of orders) {
-      const part = await storage.getPart(order.partNumberId);
+      const part = partsMap.get(order.partNumberId);
       if (!part || !part.steps || part.steps.length === 0) continue;
       
       batchCompletions[order.id] = {};
@@ -1035,7 +1040,7 @@ export async function registerRoutes(
       const due = new Date(order.dueDate);
       if (projected > due) {
         const daysLate = Math.ceil((projected.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-        const part = await storage.getPart(order.partNumberId);
+        const part = partsMap.get(order.partNumberId);
         dueDateWarnings.push({
           workOrderId: order.id,
           workOrderNumber: order.workOrderNumber ?? null,
