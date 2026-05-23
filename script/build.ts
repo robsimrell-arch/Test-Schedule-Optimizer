@@ -59,6 +59,20 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  console.log("building serverless api...");
+  await esbuild({
+    entryPoints: ["api/index.ts"],
+    platform: "node",
+    bundle: true,
+    format: "esm",
+    outfile: "dist/api/index.js",
+    packages: "external",
+    alias: {
+      "@shared": "./shared",
+    },
+    logLevel: "info",
+  });
 }
 
 buildAll().catch((err) => {

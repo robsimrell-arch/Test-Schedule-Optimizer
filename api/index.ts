@@ -6,7 +6,6 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -34,18 +33,12 @@ app.use((req, res, next) => {
 
 const httpServer = createServer(app);
 
-// Register routes on startup
 let routesRegistered = false;
-const initPromise = registerRoutes(httpServer, app)
-  .then(() => {
-    routesRegistered = true;
-  })
-  .catch((err) => {
-    console.error("Failed to register routes:", err);
-  });
+const initPromise = registerRoutes(httpServer, app).then(() => {
+  routesRegistered = true;
+});
 
-// Middleware to block requests until routes are registered
-app.use(async (req, res, next) => {
+app.use(async (_req, _res, next) => {
   if (!routesRegistered) {
     await initPromise;
   }
