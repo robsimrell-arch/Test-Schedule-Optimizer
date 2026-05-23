@@ -1,42 +1,13 @@
 import express from "express";
+import { registerRoutes } from "../server/routes";
 import { createServer } from "http";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-let startupError: any = null;
-let routesRegistered = false;
-
-// Dynamically import routes and register them, catching any startup or db initialization errors
-const initPromise = import("../server/routes")
-  .then((routesModule) => {
-    const registerRoutes = routesModule.registerRoutes;
-    const httpServer = createServer(app);
-    return registerRoutes(httpServer, app);
-  })
-  .then(() => {
-    routesRegistered = true;
-  })
-  .catch((err: any) => {
-    startupError = {
-      message: err.message,
-      stack: err.stack,
-      name: err.name
-    };
-    console.error("Vercel Serverless Function Startup Error:", err);
-  });
-
-// Global logger and error handler
+// Logging middleware
 app.use((req, res, next) => {
-  if (startupError) {
-    return res.status(500).json({
-      error: "StartupError",
-      message: startupError.message,
-      stack: startupError.stack
-    });
-  }
-  
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
@@ -61,16 +32,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware to block requests until routes are fully registered
+const httpServer = createServer(app);
+
+// Register routes on startup
+let routesRegistered = false;
+const initPromise = registerRoutes(httpServer, app)
+  .then(() => {
+    routesRegistered = true;
+  })
+  .catch((err) => {
+    console.error("Failed to register routes:", err);
+  });
+
+// Middleware to block requests until routes are registered
 app.use(async (req, res, next) => {
-  if (startupError) {
-    return res.status(500).json({
-      error: "StartupError",
-      message: startupError.message,
-      stack: startupError.stack
-    });
-  }
-  
   if (!routesRegistered) {
     await initPromise;
   }
