@@ -8,7 +8,7 @@ import {
   type PartNumberWithSteps, type TestStepWithEquipment,
   type InsertStepEquipment, type PartEquipmentCompatibility,
   type WorkOrderStepOffset, type InsertWorkOrderStepOffset,
-  type PartDependency
+  type PartDependency, type WorkOrderWithDetails
 } from "@shared/schema";
 import { eq, desc, and, notInArray } from "drizzle-orm";
 

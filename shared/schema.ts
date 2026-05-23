@@ -158,6 +158,7 @@ export const insertPartNumberSchema = createInsertSchema(partNumbers).omit({ id:
 export const insertTestStepSchema = createInsertSchema(testSteps).omit({ id: true });
 export const insertStepEquipmentSchema = createInsertSchema(stepEquipment);
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true });
+export const insertWorkOrderStepOffsetSchema = createInsertSchema(workOrderStepOffsets).omit({ id: true });
 export const insertPartEquipmentCompatibilitySchema = createInsertSchema(partEquipmentCompatibility);
 export const insertPartDependencySchema = createInsertSchema(partDependencies).omit({ id: true });
 
@@ -177,6 +178,9 @@ export type InsertStepEquipment = z.infer<typeof insertStepEquipmentSchema>;
 
 export type WorkOrder = typeof workOrders.$inferSelect;
 export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+
+export type WorkOrderStepOffset = typeof workOrderStepOffsets.$inferSelect;
+export type InsertWorkOrderStepOffset = z.infer<typeof insertWorkOrderStepOffsetSchema>;
 
 export type PartEquipmentCompatibility = typeof partEquipmentCompatibility.$inferSelect;
 export type InsertPartEquipmentCompatibility = z.infer<typeof insertPartEquipmentCompatibilitySchema>;

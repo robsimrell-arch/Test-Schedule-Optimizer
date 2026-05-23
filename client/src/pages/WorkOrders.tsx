@@ -110,7 +110,7 @@ export default function WorkOrders() {
   const commitDraft = (partNumberId: number) => {
     if (!draft) return;
     createOrder.mutate(
-      { workOrderNumber: draft.workOrderNumber || null, partNumberId, quantity: draft.quantity, priority: draft.priority, status: "pending", dueDate: draft.dueDate ? draft.dueDate.toISOString() : null },
+      { workOrderNumber: draft.workOrderNumber || null, partNumberId, quantity: draft.quantity, priority: draft.priority, status: "pending", dueDate: draft.dueDate },
       { onSuccess: () => setDraft(null), onError: (e: any) => alert("Failed: " + e.message) }
     );
   };
