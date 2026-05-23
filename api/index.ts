@@ -1,13 +1,36 @@
 import express from "express";
-import { registerRoutes } from "../server/routes";
 import { createServer } from "http";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Serverless logging middleware
+let startupError: any = null;
+let registerRoutesFn: any = null;
+
+try {
+  // Dynamically require routes to catch any module load/db initialization crashes
+  const routesModule = require("../server/routes");
+  registerRoutesFn = routesModule.registerRoutes;
+} catch (err: any) {
+  startupError = {
+    message: err.message,
+    stack: err.stack,
+    name: err.name
+  };
+  console.error("Vercel Serverless Function Startup Error:", err);
+}
+
+// Global logger and error handler
 app.use((req, res, next) => {
+  if (startupError) {
+    return res.status(500).json({
+      error: "StartupError",
+      message: startupError.message,
+      stack: startupError.stack
+    });
+  }
+  
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
@@ -32,17 +55,21 @@ app.use((req, res, next) => {
   next();
 });
 
-const httpServer = createServer(app);
+if (!startupError && registerRoutesFn) {
+  const httpServer = createServer(app);
+  let routesRegistered = false;
+  const initPromise = registerRoutesFn(httpServer, app).then(() => {
+    routesRegistered = true;
+  }).catch((err: any) => {
+    console.error("Failed to register routes:", err);
+  });
 
-let routesRegistered = false;
-const initPromise = registerRoutes(httpServer, app).then(() => {
-  routesRegistered = true;
-});
-
-// Vercel serverless function handler
-export default async function handler(req: any, res: any) {
-  if (!routesRegistered) {
-    await initPromise;
-  }
-  return app(req, res);
+  app.use(async (req, res, next) => {
+    if (!routesRegistered) {
+      await initPromise;
+    }
+    next();
+  });
 }
+
+export default app;
