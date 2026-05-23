@@ -9,7 +9,7 @@ import {
   type InsertStepEquipment, type PartEquipmentCompatibility,
   type WorkOrderStepOffset, type InsertWorkOrderStepOffset,
   type PartDependency, type WorkOrderWithDetails
-} from "@shared/schema";
+} from "../shared/schema";
 import { eq, desc, and, notInArray } from "drizzle-orm";
 
 export interface IStorage {

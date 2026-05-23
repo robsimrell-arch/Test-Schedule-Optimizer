@@ -1,11 +1,11 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { api, errorSchemas } from "@shared/routes";
+import { api, errorSchemas } from "../shared/routes";
 import { z } from "zod";
 import { addMinutes, formatISO, setHours, setMinutes, setSeconds, setMilliseconds, addDays, isBefore, isAfter } from "date-fns";
 import { seedDatabase } from "./seed";
-import type { ScheduledTask, ScheduleResponse } from "@shared/schema";
+import type { ScheduledTask, ScheduleResponse } from "../shared/schema";
 
 // Shift configuration
 const SHIFT_START_HOUR = 7; // 7 AM
@@ -1032,7 +1032,7 @@ export async function registerRoutes(
     }
 
     // Build due-date warnings for orders whose projected completion exceeds their due date
-    const dueDateWarnings: import("@shared/schema").DueDateWarning[] = [];
+    const dueDateWarnings: import("../shared/schema").DueDateWarning[] = [];
     for (const order of orders) {
       if (!order.dueDate) continue;
       const projected = orderCompletionMap[order.id];
