@@ -66,7 +66,7 @@ async function buildAll() {
     platform: "node",
     bundle: true,
     format: "esm",
-    outfile: "api/index.js",
+    outfile: "dist/api/index.js",
     packages: "external",
     logLevel: "info",
   });
