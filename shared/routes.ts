@@ -182,10 +182,11 @@ export const api = {
             equipmentNames: z.string(),
             startTime: z.string(),
             endTime: z.string(),
-            type: z.literal("test_run"),
+            type: z.enum(["test_run", "shortage_placeholder"]),
             progress: z.number(),
             dependencies: z.array(z.string()).optional(),
-            unitsCount: z.number().optional()
+            unitsCount: z.number().optional(),
+            isShortageAffected: z.boolean().optional()
           })),
           equipmentUsage: z.record(z.object({
             name: z.string(),
@@ -198,7 +199,21 @@ export const api = {
             dueDate: z.string(),
             projectedCompletion: z.string(),
             daysLate: z.number()
-          }))
+          })),
+          shortageWarnings: z.array(z.object({
+            childPartId: z.number(),
+            childPartNumber: z.string(),
+            totalDemand: z.number(),
+            totalSupply: z.number(),
+            shortage: z.number(),
+            affectedOrders: z.array(z.object({
+              workOrderId: z.number(),
+              workOrderNumber: z.string().nullable(),
+              parentPartNumber: z.string(),
+              parentPartId: z.number(),
+              quantityRequired: z.number()
+            }))
+          })).optional()
         }),
       },
     },

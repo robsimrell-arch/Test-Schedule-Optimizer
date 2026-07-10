@@ -209,10 +209,11 @@ export interface ScheduledTask {
   equipmentNames: string;
   startTime: string; // ISO string
   endTime: string; // ISO string
-  type: "test_run";
+  type: "test_run" | "shortage_placeholder";
   progress: number;
   dependencies?: string[];
   unitsCount?: number; // Number of units tested in this task segment
+  isShortageAffected?: boolean;
 }
 
 export interface DueDateWarning {
@@ -224,8 +225,24 @@ export interface DueDateWarning {
   daysLate: number;        // How many calendar days past due
 }
 
+export interface ShortageWarning {
+  childPartId: number;
+  childPartNumber: string;
+  totalDemand: number;
+  totalSupply: number;
+  shortage: number;
+  affectedOrders: {
+    workOrderId: number;
+    workOrderNumber: string | null;
+    parentPartNumber: string;
+    parentPartId: number;
+    quantityRequired: number;
+  }[];
+}
+
 export interface ScheduleResponse {
   tasks: ScheduledTask[];
   equipmentUsage: Record<number, { name: string, usage: number }>; // % usage
   dueDateWarnings: DueDateWarning[];
+  shortageWarnings?: ShortageWarning[];
 }

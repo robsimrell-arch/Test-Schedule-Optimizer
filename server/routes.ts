@@ -460,7 +460,11 @@ export async function registerRoutes(
 
     // Build BOM lookup: parentPartId -> [{ childPartId, quantityRequired }]
     const bomMap: Record<number, { childPartId: number; quantityRequired: number }[]> = {};
+    const seenDeps = new Set<string>();
     for (const dep of allBomDeps) {
+      const key = `${dep.parentPartId}-${dep.childPartId}`;
+      if (seenDeps.has(key)) continue;
+      seenDeps.add(key);
       if (!bomMap[dep.parentPartId]) bomMap[dep.parentPartId] = [];
       bomMap[dep.parentPartId].push({ childPartId: dep.childPartId, quantityRequired: dep.quantityRequired });
     }
@@ -471,6 +475,68 @@ export async function registerRoutes(
     for (const order of orders) {
       if (!ordersByPartId[order.partNumberId]) ordersByPartId[order.partNumberId] = [];
       ordersByPartId[order.partNumberId].push(order);
+    }
+
+    // Pre-scheduling shortage check
+    // 1. Calculate supply: sum up quantity produced by all active child work orders
+    const supplyByPartId: Record<number, number> = {};
+    for (const part of allParts) {
+      const childWOs = ordersByPartId[part.id] || [];
+      supplyByPartId[part.id] = childWOs.reduce((sum, wo) => sum + wo.quantity, 0);
+    }
+
+    // 2. Calculate demand: sum up child units needed across all active parent work orders
+    const demandByChildId: Record<number, number> = {};
+    // Track affected orders per child ID
+    const affectedOrdersByChildId: Record<number, {
+      workOrderId: number;
+      workOrderNumber: string | null;
+      parentPartNumber: string;
+      parentPartId: number;
+      quantityRequired: number;
+    }[]> = {};
+
+    for (const order of orders) {
+      const deps = bomMap[order.partNumberId] || [];
+      const parentPart = partsMap.get(order.partNumberId);
+      const parentPartNumber = parentPart?.partNumber || "Unknown";
+
+      for (const dep of deps) {
+        const childPartId = dep.childPartId;
+        const qtyNeeded = order.quantity * dep.quantityRequired;
+        
+        demandByChildId[childPartId] = (demandByChildId[childPartId] || 0) + qtyNeeded;
+
+        if (!affectedOrdersByChildId[childPartId]) {
+          affectedOrdersByChildId[childPartId] = [];
+        }
+        affectedOrdersByChildId[childPartId].push({
+          workOrderId: order.id,
+          workOrderNumber: order.workOrderNumber ?? null,
+          parentPartNumber,
+          parentPartId: order.partNumberId,
+          quantityRequired: qtyNeeded
+        });
+      }
+    }
+
+    // 3. Compare supply vs demand to identify shortages
+    const shortageWarnings: import("../shared/schema").ShortageWarning[] = [];
+    for (const childIdStr of Object.keys(demandByChildId)) {
+      const childId = Number(childIdStr);
+      const demand = demandByChildId[childId];
+      const supply = supplyByPartId[childId] || 0;
+      if (supply < demand) {
+        const childPart = partsMap.get(childId);
+        shortageWarnings.push({
+          childPartId: childId,
+          childPartNumber: childPart?.partNumber || "Unknown",
+          totalDemand: demand,
+          totalSupply: supply,
+          shortage: demand - supply,
+          affectedOrders: affectedOrdersByChildId[childId] || []
+        });
+      }
     }
     
     // Build compatibility lookup (includes changeover time)
@@ -604,8 +670,11 @@ export async function registerRoutes(
     
     // Helper: Calculate when enough units are ready for a batch to start
     // For step N batch B, we need enough units from step N-1 to fill this batch
-    function getMinStartTimeForBatch(batch: PendingBatch): Date {
+    function getMinStartTimeForBatch(batch: PendingBatch, ignoreBOM = false): Date {
       if (batch.stepOrder === 1) {
+        if (ignoreBOM) {
+          return new Date(workingStartTime);
+        }
         // BOM pipeline constraint: this parent batch can start as soon as enough
         // child sub-assembly units are done to satisfy THIS specific batch position.
         // Uses the same chronological accumulation pattern as intra-order step pipelining.
@@ -946,6 +1015,90 @@ export async function registerRoutes(
       if (idx >= 0) pendingBatches.splice(idx, 1);
     }
 
+    // Second pass: Schedule remaining batches as shortage placeholders (ignoring BOM constraints)
+    while (pendingBatches.length > 0) {
+      const readyBatches: PendingBatch[] = [];
+      for (const batch of pendingBatches) {
+        const minTime = getMinStartTimeForBatch(batch, true);
+        if (minTime.getTime() < 8640000000000000) {
+          readyBatches.push(batch);
+        }
+      }
+      
+      if (readyBatches.length === 0) {
+        break; // Prevent infinite loop if something is unresolvable
+      }
+      
+      const batchOptions: { batch: PendingBatch; slot: ReturnType<typeof findEarliestSlotForBatch>; minTime: Date }[] = [];
+      for (const batch of readyBatches) {
+        const minStartTime = getMinStartTimeForBatch(batch, true);
+        const slot = findEarliestSlotForBatch(batch, minStartTime);
+        if (slot) {
+          batchOptions.push({ batch, slot, minTime: minStartTime });
+        }
+      }
+      
+      if (batchOptions.length === 0) {
+        break;
+      }
+      
+      batchOptions.sort((a, b) => {
+        const timeDiff = a.slot!.startTime.getTime() - b.slot!.startTime.getTime();
+        if (timeDiff !== 0) return timeDiff;
+        const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
+        if (priorityDiff !== 0) return priorityDiff;
+        return a.batch.stepOrder - b.batch.stepOrder;
+      });
+      
+      const best = batchOptions[0];
+      const { batch, slot } = best;
+      
+      const usedEquipmentNames = slot!.selectedUnits.map(u => {
+        const eq = equipmentList.find(e => e.id === u.eqId);
+        return eq?.name || "Unknown";
+      }).join(", ");
+      
+      const taskId = batch.totalBatches > 1 
+        ? `wo-${batch.orderId}-step-${batch.stepId}-b${batch.batchIndex + 1}-shortage`
+        : `wo-${batch.orderId}-step-${batch.stepId}-shortage`;
+        
+      tasks.push({
+        id: taskId,
+        workOrderId: batch.orderId,
+        partNumber: batch.partNumber,
+        stepId: batch.stepId,
+        stepOrder: batch.stepOrder,
+        stepName: batch.step.name || undefined,
+        equipmentIds: slot!.selectedUnits.map(u => u.eqId),
+        equipmentNames: usedEquipmentNames,
+        startTime: formatISO(slot!.startTime),
+        endTime: formatISO(slot!.endTime),
+        type: "shortage_placeholder",
+        progress: 0,
+        dependencies: [],
+        unitsCount: batch.unitsInBatch
+      });
+      
+      for (const unit of slot!.selectedUnits) {
+        machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
+        if (chamberIds.has(unit.eqId)) {
+          chamberLastPart[unit.eqId][unit.unitIdx] = batch.partNumberId;
+        }
+      }
+      
+      batchCompletions[batch.orderId][batch.stepOrder].push({
+        endTime: slot!.endTime,
+        unitsCompleted: batch.unitsInBatch
+      });
+      
+      const idx = pendingBatches.findIndex(b => 
+        b.orderId === batch.orderId && 
+        b.stepId === batch.stepId && 
+        b.batchIndex === batch.batchIndex
+      );
+      if (idx >= 0) pendingBatches.splice(idx, 1);
+    }
+
     // Merge consecutive batches of the same work order and step into single timeline items
     const mergedTasks: ScheduledTask[] = [];
     
@@ -956,7 +1109,7 @@ export async function registerRoutes(
       const match = task.id.match(/^(wo-\d+-step-\d+)/);
       if (match) {
         const chamberEqIds = task.equipmentIds.filter(id => chamberIds.has(id)).sort().join(',');
-        const key = `${task.workOrderId}-${task.stepId}-eq${chamberEqIds}`;
+        const key = `${task.workOrderId}-${task.stepId}-eq${chamberEqIds}-${task.type}`;
         if (!taskGroups.has(key)) {
           taskGroups.set(key, []);
         }
@@ -1055,10 +1208,54 @@ export async function registerRoutes(
     // Sort warnings by most days late first
     dueDateWarnings.sort((a, b) => b.daysLate - a.daysLate);
 
+    // Chronological shortage impact calculation on mergedTasks
+    const orderPartMap = new Map<number, number>();
+    for (const o of allOrders) {
+      orderPartMap.set(o.id, o.partNumberId);
+    }
+
+    const runningConsumption: Record<number, number> = {};
+    const sortedMergedTasks = [...mergedTasks].sort((a, b) => 
+      new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    );
+
+    for (const task of sortedMergedTasks) {
+      const partId = orderPartMap.get(task.workOrderId);
+      if (!partId) continue;
+
+      const deps = bomMap[partId] || [];
+      let isAffected = false;
+
+      for (const dep of deps) {
+        const childPartId = dep.childPartId;
+        const qtyNeeded = (task.unitsCount || 0) * dep.quantityRequired;
+        if (qtyNeeded === 0) continue;
+
+        const currentConsumed = runningConsumption[childPartId] || 0;
+        const newConsumed = currentConsumed + qtyNeeded;
+        runningConsumption[childPartId] = newConsumed;
+
+        const totalSupply = supplyByPartId[childPartId] || 0;
+        
+        // If we don't have enough supply to cover this task's consumption, it is affected!
+        if (newConsumed > totalSupply) {
+          isAffected = true;
+        }
+      }
+
+      if (isAffected) {
+        const ref = mergedTasks.find(mt => mt.id === task.id);
+        if (ref) {
+          ref.isShortageAffected = true;
+        }
+      }
+    }
+
     res.json({
       tasks: mergedTasks,
       equipmentUsage: {},
       dueDateWarnings,
+      shortageWarnings,
     });
   });
 

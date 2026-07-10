@@ -351,11 +351,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async setPartDependencies(parentPartId: number, deps: { childPartId: number; quantityRequired: number }[]): Promise<PartDependency[]> {
+    // Deduplicate incoming dependencies by childPartId to prevent duplicates in DB
+    const dedupedMap = new Map<number, { childPartId: number; quantityRequired: number }>();
+    for (const d of deps) {
+      dedupedMap.set(d.childPartId, d);
+    }
+    const dedupedDeps = Array.from(dedupedMap.values());
+
     return await db.transaction(async (tx) => {
       await tx.delete(partDependencies).where(eq(partDependencies.parentPartId, parentPartId));
-      if (deps.length === 0) return [];
+      if (dedupedDeps.length === 0) return [];
       const inserted = await tx.insert(partDependencies).values(
-        deps.map(d => ({ parentPartId, childPartId: d.childPartId, quantityRequired: d.quantityRequired }))
+        dedupedDeps.map(d => ({ parentPartId, childPartId: d.childPartId, quantityRequired: d.quantityRequired }))
       ).returning();
       return inserted;
     });

@@ -119,10 +119,16 @@ export default function Dashboard() {
     const chamberMatch = t.equipmentNames?.match(/ESS Chamber (\d+)/);
     const chamberSuffix = chamberMatch ? ` [C${chamberMatch[1]}]` : '';
     const units = t.unitsCount || 0;
+    const isShortage = t.type === "shortage_placeholder";
+    const isAffected = t.isShortageAffected === true;
     
     let baseName = t.stepName 
       ? `${t.partNumber} - ${t.stepName}` 
       : `${t.partNumber} (Step ${t.stepOrder})`;
+      
+    if (isShortage || isAffected) {
+      baseName = `⚠️ SHORTAGE: ${baseName}`;
+    }
     
     const barName = units > 0
       ? `${baseName}${chamberSuffix} (${units})`
@@ -136,7 +142,9 @@ export default function Dashboard() {
       type: "task",
       progress: t.progress,
       isDisabled: true,
-      styles: { progressColor: "#3b82f6", backgroundColor: "#bfdbfe" },
+      styles: (isShortage || isAffected)
+        ? { progressColor: "#e11d48", backgroundColor: "#ffe4e6" } // Rose/red theme for shortages
+        : { progressColor: "#3b82f6", backgroundColor: "#bfdbfe" },
     };
   });
 
@@ -219,6 +227,50 @@ export default function Dashboard() {
                   <span className="ml-auto font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
                     {w.daysLate} day{w.daysLate !== 1 ? "s" : ""} late
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sub-Assembly Shortage Warnings */}
+        {schedule.shortageWarnings && schedule.shortageWarnings.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 font-semibold text-sm">
+              <AlertCircle className="w-4 h-4" />
+              {schedule.shortageWarnings.length} sub-assembly shortage{schedule.shortageWarnings.length > 1 ? "s" : ""} detected
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              {schedule.shortageWarnings.map((w) => (
+                <div
+                  key={w.childPartId}
+                  className="flex flex-col gap-2 p-4 rounded-lg border border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-900/60 text-sm"
+                >
+                  <div className="flex items-center gap-x-4 flex-wrap">
+                    <span className="font-bold text-amber-800 dark:text-amber-400 text-base">
+                      {w.childPartNumber}
+                    </span>
+                    <span className="text-amber-800 dark:text-amber-400">
+                      Shortage: <span className="font-semibold">{w.shortage} units</span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      Demand: <span className="font-medium text-foreground">{w.totalDemand}</span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      Supply: <span className="font-medium text-foreground">{w.totalSupply}</span>
+                    </span>
+                  </div>
+                  
+                  {w.affectedOrders && w.affectedOrders.length > 0 && (
+                    <div className="mt-1 pt-2 border-t border-amber-100 dark:border-amber-900/40 text-xs text-muted-foreground">
+                      <span className="font-medium text-amber-900/80 dark:text-amber-400/80 mr-1">Affects Orders:</span>
+                      {w.affectedOrders.map((o, idx) => (
+                        <span key={o.workOrderId} className="inline-block bg-amber-100/60 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded mr-1 mb-1">
+                          {o.workOrderNumber ?? `WO-${String(o.workOrderId).padStart(4, "0")}`} ({o.parentPartNumber} - needs {o.quantityRequired})
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

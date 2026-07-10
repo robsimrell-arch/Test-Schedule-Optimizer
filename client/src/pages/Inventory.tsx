@@ -909,17 +909,17 @@ function BomTab() {
 
   const toggle = (parentId: number, childId: number, currentlyOn: boolean) => {
     const currentDeps = (allDeps ?? []).filter(d => d.parentPartId === parentId);
-    let newDeps;
-    if (currentlyOn) {
-      newDeps = currentDeps
-        .filter(d => d.childPartId !== childId)
-        .map(d => ({ childPartId: d.childPartId, quantityRequired: d.quantityRequired }));
-    } else {
-      newDeps = [
-        ...currentDeps.map(d => ({ childPartId: d.childPartId, quantityRequired: d.quantityRequired })),
-        { childPartId: childId, quantityRequired: 1 },
-      ];
+    const dedupedMap = new Map<number, { childPartId: number; quantityRequired: number }>();
+    for (const d of currentDeps) {
+      dedupedMap.set(d.childPartId, { childPartId: d.childPartId, quantityRequired: d.quantityRequired });
     }
+    
+    if (currentlyOn) {
+      dedupedMap.delete(childId);
+    } else {
+      dedupedMap.set(childId, { childPartId: childId, quantityRequired: 1 });
+    }
+    const newDeps = Array.from(dedupedMap.values());
     setDeps.mutate({ partId: parentId, dependencies: newDeps });
   };
 
@@ -927,11 +927,17 @@ function BomTab() {
     const key = `${parentId}-${childId}`;
     const qty = parseInt(pendingQty[key]) || 1;
     const currentDeps = (allDeps ?? []).filter(d => d.parentPartId === parentId);
-    const newDeps = currentDeps.map(d =>
-      d.childPartId === childId
-        ? { childPartId: d.childPartId, quantityRequired: qty }
-        : { childPartId: d.childPartId, quantityRequired: d.quantityRequired }
-    );
+    
+    const dedupedMap = new Map<number, { childPartId: number; quantityRequired: number }>();
+    for (const d of currentDeps) {
+      dedupedMap.set(d.childPartId, { childPartId: d.childPartId, quantityRequired: d.quantityRequired });
+    }
+    
+    if (dedupedMap.has(childId)) {
+      dedupedMap.get(childId)!.quantityRequired = qty;
+    }
+    
+    const newDeps = Array.from(dedupedMap.values());
     setDeps.mutate({ partId: parentId, dependencies: newDeps });
     setPendingQty(prev => { const n = { ...prev }; delete n[key]; return n; });
   };
