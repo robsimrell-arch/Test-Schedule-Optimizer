@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/Layout";
 import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
@@ -26,8 +26,13 @@ const ganttStyles = `
     display: block !important;
     fill: black !important;
     font-size: 11px !important;
-    font-weight: 600 !important;
+    font-weight: 500 !important;
     pointer-events: none;
+  }
+  .barWrapper text.gantt-chamber-run-text,
+  .bar text.gantt-chamber-run-text,
+  g[class*="bar"] text.gantt-chamber-run-text {
+    font-weight: 800 !important;
   }
 `;
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,6 +73,32 @@ export default function Dashboard() {
   const { data: parts = [] } = useParts();
   const { data: dependencies = [] } = useAllPartDependencies();
   const saveSupplyRule = useSavePartSupplyRule();
+
+  useEffect(() => {
+    const applyChamberBoldStyle = () => {
+      const textElements = document.querySelectorAll('text');
+      textElements.forEach(el => {
+        if (el.textContent && /\[C\d+\]/.test(el.textContent)) {
+          el.classList.add('gantt-chamber-run-text');
+        }
+      });
+    };
+
+    applyChamberBoldStyle();
+
+    const observer = new MutationObserver(() => {
+      applyChamberBoldStyle();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [schedule, viewMode]);
 
   const handleSelectSubassembly = (partId: number) => {
     setSelectedSubassemblyId(partId);
