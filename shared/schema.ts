@@ -74,6 +74,14 @@ export const partDependencies = pgTable("part_dependencies", {
   quantityRequired: integer("quantity_required").notNull().default(1), // Units of child needed per unit of parent
 });
 
+// Part supply expected rules (units/day and specific dates when quantities become available)
+export const partSupplyRules = pgTable("part_supply_rules", {
+  id: serial("id").primaryKey(),
+  partNumberId: integer("part_number_id").notNull().unique(), // The sub-assembly part number
+  expectedSupplyRate: integer("expected_supply_rate"),        // Expected units per day
+  fixedSupplies: text("fixed_supplies"),                      // JSON string of { date: string, quantity: number }[]
+});
+
 // === RELATIONS ===
 
 export const partNumbersRelations = relations(partNumbers, ({ many }) => ({
@@ -188,6 +196,10 @@ export type InsertPartEquipmentCompatibility = z.infer<typeof insertPartEquipmen
 export type PartDependency = typeof partDependencies.$inferSelect;
 export type InsertPartDependency = z.infer<typeof insertPartDependencySchema>;
 
+export const insertPartSupplyRuleSchema = createInsertSchema(partSupplyRules).omit({ id: true });
+export type PartSupplyRule = typeof partSupplyRules.$inferSelect;
+export type InsertPartSupplyRule = z.infer<typeof insertPartSupplyRuleSchema>;
+
 // Complex types including relations for the frontend
 export type TestStepWithEquipment = TestStep & { equipmentRequirements: (StepEquipment & { equipment: TestEquipment })[] };
 export type PartNumberWithSteps = PartNumber & { steps: TestStepWithEquipment[] };
@@ -214,6 +226,9 @@ export interface ScheduledTask {
   dependencies?: string[];
   unitsCount?: number; // Number of units tested in this task segment
   isShortageAffected?: boolean;
+  constrainingSubassemblyName?: string;
+  equipmentUnitIndices?: number[];
+  combinedOrders?: { workOrderId: number; workOrderNumber: string | null; quantity: number }[];
 }
 
 export interface DueDateWarning {
@@ -245,4 +260,7 @@ export interface ScheduleResponse {
   equipmentUsage: Record<number, { name: string, usage: number }>; // % usage
   dueDateWarnings: DueDateWarning[];
   shortageWarnings?: ShortageWarning[];
+  optimalSupplyRates?: Record<number, number>; // partNumberId -> optimal units/day
+  partSupplyRules?: PartSupplyRule[];
+  subassemblyDemandTotals?: Record<number, number>; // childPartId -> total units demanded
 }

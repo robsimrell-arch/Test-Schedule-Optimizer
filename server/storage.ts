@@ -1,6 +1,6 @@
 import { db } from "./db";
 import {
-  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility, workOrderStepOffsets, partDependencies,
+  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility, workOrderStepOffsets, partDependencies, partSupplyRules,
   type TestEquipment, type InsertTestEquipment,
   type PartNumber, type InsertPartNumber,
   type TestStep, type InsertTestStep,
@@ -8,7 +8,8 @@ import {
   type PartNumberWithSteps, type TestStepWithEquipment,
   type InsertStepEquipment, type PartEquipmentCompatibility,
   type WorkOrderStepOffset, type InsertWorkOrderStepOffset,
-  type PartDependency, type WorkOrderWithDetails
+  type PartDependency, type WorkOrderWithDetails,
+  type PartSupplyRule, type InsertPartSupplyRule
 } from "../shared/schema";
 import { eq, desc, and, notInArray } from "drizzle-orm";
 
@@ -53,6 +54,11 @@ export interface IStorage {
   getPartDependencies(parentPartId: number): Promise<(PartDependency & { childPart: PartNumber })[]>;
   setPartDependencies(parentPartId: number, deps: { childPartId: number; quantityRequired: number }[]): Promise<PartDependency[]>;
   getAllPartDependencies(): Promise<PartDependency[]>;
+
+  // Sub-assembly supply rules
+  getPartSupplyRules(): Promise<PartSupplyRule[]>;
+  getPartSupplyRule(partNumberId: number): Promise<PartSupplyRule | undefined>;
+  setPartSupplyRule(partNumberId: number, rule: Partial<InsertPartSupplyRule>): Promise<PartSupplyRule>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -215,7 +221,7 @@ export class DatabaseStorage implements IStorage {
         partNumber: true,
         stepOffsets: true,
       },
-      orderBy: (orders, { desc }) => [desc(orders.priority), desc(orders.createdAt)]
+      orderBy: (orders, { asc, desc }) => [asc(orders.priority), desc(orders.createdAt)]
     });
     return orders as WorkOrderWithDetails[];
   }
@@ -370,6 +376,35 @@ export class DatabaseStorage implements IStorage {
 
   async getAllPartDependencies(): Promise<PartDependency[]> {
     return await db.select().from(partDependencies);
+  }
+
+  async getPartSupplyRules(): Promise<PartSupplyRule[]> {
+    return await db.select().from(partSupplyRules);
+  }
+
+  async getPartSupplyRule(partNumberId: number): Promise<PartSupplyRule | undefined> {
+    const [rule] = await db.select().from(partSupplyRules).where(eq(partSupplyRules.partNumberId, partNumberId));
+    return rule;
+  }
+
+  async setPartSupplyRule(partNumberId: number, rule: Partial<InsertPartSupplyRule>): Promise<PartSupplyRule> {
+    const [existing] = await db.select().from(partSupplyRules).where(eq(partSupplyRules.partNumberId, partNumberId));
+    if (existing) {
+      const [updated] = await db.update(partSupplyRules)
+        .set(rule)
+        .where(eq(partSupplyRules.partNumberId, partNumberId))
+        .returning();
+      return updated;
+    } else {
+      const [inserted] = await db.insert(partSupplyRules)
+        .values({
+          partNumberId,
+          expectedSupplyRate: rule.expectedSupplyRate ?? null,
+          fixedSupplies: rule.fixedSupplies ?? null,
+        })
+        .returning();
+      return inserted;
+    }
   }
 }
 

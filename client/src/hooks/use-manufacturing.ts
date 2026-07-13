@@ -448,3 +448,39 @@ export function useSetPartDependencies() {
     },
   });
 }
+
+export function usePartSupplyRules() {
+  return useQuery({
+    queryKey: [api.parts.getSupplyRules.path],
+    queryFn: async () => {
+      const res = await fetch(api.parts.getSupplyRules.path);
+      if (!res.ok) throw new Error("Failed to fetch supply rules");
+      return res.json() as Promise<any[]>;
+    },
+  });
+}
+
+export function useSavePartSupplyRule() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (data: { partNumberId: number; expectedSupplyRate: number | null; fixedSupplies: string | null }) => {
+      const res = await fetch(api.parts.saveSupplyRule.path, {
+        method: api.parts.saveSupplyRule.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to save supply rule");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.parts.getSupplyRules.path] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Supply rule saved successfully" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+}

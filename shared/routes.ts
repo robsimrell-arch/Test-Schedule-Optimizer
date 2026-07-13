@@ -109,6 +109,26 @@ export const api = {
         204: z.void(),
         404: errorSchemas.notFound,
       },
+    },
+    getSupplyRules: {
+      method: 'GET' as const,
+      path: '/api/parts/supply-rules',
+      responses: {
+        200: z.array(z.custom<any>()),
+      },
+    },
+    saveSupplyRule: {
+      method: 'POST' as const,
+      path: '/api/parts/supply-rules',
+      input: z.object({
+        partNumberId: z.number(),
+        expectedSupplyRate: z.number().nullable(),
+        fixedSupplies: z.string().nullable(),
+      }),
+      responses: {
+        200: z.custom<any>(),
+        400: errorSchemas.validation,
+      },
     }
   },
   steps: {
@@ -186,7 +206,14 @@ export const api = {
             progress: z.number(),
             dependencies: z.array(z.string()).optional(),
             unitsCount: z.number().optional(),
-            isShortageAffected: z.boolean().optional()
+            isShortageAffected: z.boolean().optional(),
+            constrainingSubassemblyName: z.string().optional(),
+            equipmentUnitIndices: z.array(z.number()).optional(),
+            combinedOrders: z.array(z.object({
+              workOrderId: z.number(),
+              workOrderNumber: z.string().nullable(),
+              quantity: z.number()
+            })).optional()
           })),
           equipmentUsage: z.record(z.object({
             name: z.string(),
@@ -213,7 +240,10 @@ export const api = {
               parentPartId: z.number(),
               quantityRequired: z.number()
             }))
-          })).optional()
+          })).optional(),
+          optimalSupplyRates: z.record(z.string(), z.number()).optional(),
+          partSupplyRules: z.array(z.any()).optional(),
+          subassemblyDemandTotals: z.record(z.string(), z.number()).optional()
         }),
       },
     },

@@ -28,45 +28,85 @@ function skipToWorkingDay(date: Date, workDays: 5 | 6 | 7): Date {
   return result;
 }
 
+// Helper: Check if time is within shift schedule working hours
+function isWorkingTime(date: Date, shifts: 1 | 2 | 3, workDays: 5 | 6 | 7): boolean {
+  const day = date.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  
+  // Check work days
+  if (workDays === 5 && (day === 0 || day === 6)) return false;
+  if (workDays === 6 && day === 0) return false;
+  
+  const hour = date.getHours();
+  const minute = date.getMinutes();
+  const timeInMinutes = hour * 60 + minute;
+  
+  if (shifts === 1) {
+    // 1st shift: 6am - 2pm (360 - 840)
+    return timeInMinutes >= 360 && timeInMinutes < 840;
+  } else if (shifts === 2) {
+    // 2 shifts: 6am - 10pm (360 - 1320)
+    return timeInMinutes >= 360 && timeInMinutes < 1320;
+  }
+  return true; // 3 shifts / 24h
+}
+
 // Helper: Get the next available working time based on shift schedule
 function getNextWorkingTime(date: Date, shifts: 1 | 2 | 3, workDays: 5 | 6 | 7 = 7): Date {
-  if (shifts === 3) {
-    // 3 shifts = 24 hours, just need to be on a working day
-    let result = skipToWorkingDay(new Date(date), workDays);
-    return result;
+  if (date.getSeconds() === 0 && date.getMilliseconds() === 0 && isWorkingTime(date, shifts, workDays)) {
+    return new Date(date.getTime());
   }
-  const hoursPerDay = shifts * HOURS_PER_SHIFT; // 8 or 16 hours
-  const shiftEndHour = SHIFT_START_HOUR + hoursPerDay; // 15 (3pm) or 23 (11pm)
+  let current = new Date(date.getTime());
+  current.setSeconds(0, 0);
+  current.setMilliseconds(0);
   
-  let result = new Date(date);
-  
-  // First, skip to a working day
-  result = skipToWorkingDay(result, workDays);
-  
-  const currentHour = result.getHours();
-  
-  // If before shift start, move to shift start
-  if (currentHour < SHIFT_START_HOUR) {
-    result = setHours(result, SHIFT_START_HOUR);
-    result = setMinutes(result, 0);
-    result = setSeconds(result, 0);
-    result = setMilliseconds(result, 0);
-    return result;
+  while (true) {
+    const day = current.getDay();
+    
+    // 1. Handle non-working days (weekends)
+    if (workDays === 5 && (day === 0 || day === 6)) {
+      const daysToAdd = day === 6 ? 2 : 1;
+      current.setDate(current.getDate() + daysToAdd);
+      current.setHours(6, 0, 0, 0);
+      continue;
+    }
+    if (workDays === 6 && day === 0) {
+      current.setDate(current.getDate() + 1);
+      current.setHours(6, 0, 0, 0);
+      continue;
+    }
+    
+    // 2. Handle working day hours
+    const hour = current.getHours();
+    const minute = current.getMinutes();
+    const timeInMinutes = hour * 60 + minute;
+    
+    if (shifts === 1) {
+      if (timeInMinutes < 360) {
+        current.setHours(6, 0, 0, 0);
+        return current;
+      } else if (timeInMinutes >= 840) {
+        current.setDate(current.getDate() + 1);
+        current.setHours(6, 0, 0, 0);
+        continue;
+      } else {
+        return current;
+      }
+    } else if (shifts === 2) {
+      if (timeInMinutes < 360) {
+        current.setHours(6, 0, 0, 0);
+        return current;
+      } else if (timeInMinutes >= 1320) {
+        current.setDate(current.getDate() + 1);
+        current.setHours(6, 0, 0, 0);
+        continue;
+      } else {
+        return current;
+      }
+    } else {
+      // shifts === 3 (24h working day)
+      return current;
+    }
   }
-  
-  // If after shift end, move to next working day's shift start
-  if (currentHour >= shiftEndHour) {
-    result = addDays(result, 1);
-    result = skipToWorkingDay(result, workDays);
-    result = setHours(result, SHIFT_START_HOUR);
-    result = setMinutes(result, 0);
-    result = setSeconds(result, 0);
-    result = setMilliseconds(result, 0);
-    return result;
-  }
-  
-  // Within working hours
-  return result;
 }
 
 // Helper: Add working minutes (skipping non-working hours and non-working days)
@@ -124,8 +164,144 @@ function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2 | 3, 
       current = setMilliseconds(current, 0);
     }
   }
-  
   return current;
+}
+
+function addWorkingDays(startDate: Date, days: number, workDays: 5 | 6 | 7): Date {
+  let result = new Date(startDate.getTime());
+  if (days <= 0) return result;
+
+  const dayOfWeek = result.getDay();
+  
+  if (workDays === 7) {
+    result.setDate(result.getDate() + days);
+    return result;
+  }
+  
+  if (workDays === 6) {
+    const weeks = Math.floor(days / 6);
+    let remaining = days % 6;
+    result.setDate(result.getDate() + weeks * 7);
+    
+    while (remaining > 0) {
+      result.setDate(result.getDate() + 1);
+      if (result.getDay() !== 0) { // skip Sunday
+        remaining--;
+      }
+    }
+    return result;
+  }
+  
+  const weeks = Math.floor(days / 5);
+  let remaining = days % 5;
+  result.setDate(result.getDate() + weeks * 7);
+  
+  while (remaining > 0) {
+    result.setDate(result.getDate() + 1);
+    const day = result.getDay();
+    if (day !== 0 && day !== 6) { // skip Sat/Sun
+      remaining--;
+    }
+  }
+  return result;
+}
+
+function getSupplyTimeFromEventsAndRate(
+  expectedRate: number,
+  initialEvents: { time: number; qty: number }[],
+  unitsNeeded: number,
+  workingStartTime: Date,
+  shifts: 1 | 2 | 3,
+  workDays: 5 | 6 | 7,
+  startHour: number
+): Date {
+  if (unitsNeeded <= 0) return new Date(workingStartTime);
+  
+  // Sort events chronologically
+  const sortedEvents = [...initialEvents].sort((a, b) => a.time - b.time);
+  
+  // Accumulate all events that happen at or before workingStartTime
+  let accumulated = 0;
+  for (const ev of sortedEvents) {
+    if (ev.time <= workingStartTime.getTime()) {
+      accumulated += ev.qty;
+    }
+  }
+  if (accumulated >= unitsNeeded) {
+    return new Date(workingStartTime);
+  }
+  
+  // Future events (happen after workingStartTime)
+  const futureEvents = sortedEvents.filter(e => e.time > workingStartTime.getTime());
+  let futureEvIdx = 0;
+  
+  // If there is no daily rate, we only rely on the discrete events
+  if (expectedRate <= 0) {
+    for (const ev of futureEvents) {
+      accumulated += ev.qty;
+      if (accumulated >= unitsNeeded) {
+        return new Date(ev.time);
+      }
+    }
+    return new Date(8640000000000000); // Far future
+  }
+  
+  // Otherwise, simulate daily drops at startHour on working days
+  let currentDay = new Date(workingStartTime.getTime());
+  currentDay = setHours(currentDay, startHour);
+  currentDay = setMinutes(currentDay, 0);
+  currentDay = setSeconds(currentDay, 0);
+  currentDay = setMilliseconds(currentDay, 0);
+  
+  let attempts = 0;
+  const maxDays = 10000;
+  
+  while (accumulated < unitsNeeded && attempts < maxDays) {
+    if (isWorkingDay(currentDay, workDays)) {
+      const dropTime = currentDay.getTime();
+      
+      // Process any future discrete events that happen before this dropTime
+      while (futureEvIdx < futureEvents.length && futureEvents[futureEvIdx].time < dropTime) {
+        const ev = futureEvents[futureEvIdx++];
+        accumulated += ev.qty;
+        if (accumulated >= unitsNeeded) {
+          return new Date(ev.time);
+        }
+      }
+      
+      // Apply the daily drop
+      accumulated += expectedRate;
+      if (accumulated >= unitsNeeded) {
+        return new Date(Math.max(dropTime, workingStartTime.getTime()));
+      }
+
+      // OPTIMIZATION: If no more future discrete events exist, we can jump directly mathematically
+      if (futureEvIdx >= futureEvents.length) {
+        const remaining = unitsNeeded - accumulated;
+        const dropsNeeded = Math.ceil(remaining / expectedRate);
+        const targetDay = addWorkingDays(currentDay, dropsNeeded, workDays);
+        return new Date(Math.max(targetDay.getTime(), workingStartTime.getTime()));
+      }
+    }
+    
+    currentDay = addDays(currentDay, 1);
+    attempts++;
+  }
+  
+  // Process any remaining future events if still not met
+  while (accumulated < unitsNeeded && futureEvIdx < futureEvents.length) {
+    const ev = futureEvents[futureEvIdx++];
+    accumulated += ev.qty;
+    if (accumulated >= unitsNeeded) {
+      return new Date(ev.time);
+    }
+  }
+  
+  if (accumulated >= unitsNeeded) {
+    return new Date(workingStartTime);
+  }
+  
+  return new Date(8640000000000000);
 }
 
 export async function registerRoutes(
@@ -437,826 +613,1167 @@ export async function registerRoutes(
     }
   });
 
+  // === SUB-ASSEMBLY SUPPLY RULES ENDPOINTS ===
+  app.get(api.parts.getSupplyRules.path, async (req, res) => {
+    try {
+      const rules = await storage.getPartSupplyRules();
+      res.json(rules);
+    } catch (err: any) {
+      console.error("Error fetching supply rules:", err);
+      res.status(500).json({ message: err.message || "Internal server error" });
+    }
+  });
+
+  app.post(api.parts.saveSupplyRule.path, async (req, res) => {
+    try {
+      const parsed = api.parts.saveSupplyRule.input.parse(req.body);
+      const rule = await storage.setPartSupplyRule(parsed.partNumberId, {
+        expectedSupplyRate: parsed.expectedSupplyRate,
+        fixedSupplies: parsed.fixedSupplies,
+      });
+      res.json(rule);
+    } catch (err: any) {
+      console.error("Error saving supply rule:", err);
+      res.status(500).json({ message: err.message || "Internal server error" });
+    }
+  });
+
   // === SCHEDULER LOGIC ===
   // Greedy scheduler that maximizes equipment utilization while respecting priorities
   app.get(api.schedule.calculate.path, async (req, res) => {
-    const shiftsParam = parseInt(req.query.shifts as string) || 3;
-    const shifts: 1 | 2 | 3 = shiftsParam === 1 ? 1 : shiftsParam === 2 ? 2 : 3;
-    
-    const workDaysParam = parseInt(req.query.workDays as string) || 7;
-    const workDays: 5 | 6 | 7 = workDaysParam === 5 ? 5 : workDaysParam === 6 ? 6 : 7;
-    
-    const allOrders = await storage.getOrders();
-    const orders = allOrders.filter(o => o.status === "scheduled");
-    const equipmentList = await storage.getEquipment();
-    const allCompatibility = await storage.getAllPartCompatibility();
-    const chambers = await storage.getChambers();
-    const allBomDeps = await storage.getAllPartDependencies();
-    const allParts = await storage.getParts();
-    const partsMap = new Map<number, typeof allParts[number]>();
-    for (const part of allParts) {
-      partsMap.set(part.id, part);
-    }
+    try {
+      const shiftsParam = parseInt(req.query.shifts as string) || 3;
+      const shifts: 1 | 2 | 3 = shiftsParam === 1 ? 1 : shiftsParam === 2 ? 2 : 3;
+      
+      const workDaysParam = parseInt(req.query.workDays as string) || 7;
+      const workDays: 5 | 6 | 7 = workDaysParam === 5 ? 5 : workDaysParam === 6 ? 6 : 7;
+      
+      const allOrders = await storage.getOrders();
+      const orders = allOrders.filter(o => o.status === "scheduled");
+      const equipmentList = await storage.getEquipment();
+      const allCompatibility = await storage.getAllPartCompatibility();
+      const chambers = await storage.getChambers();
+      const allBomDeps = await storage.getAllPartDependencies();
+      const allParts = await storage.getParts();
+      const allSupplyRules = await storage.getPartSupplyRules();
+      
+      const partsMap = new Map<number, typeof allParts[number]>();
+      for (const part of allParts) {
+        partsMap.set(part.id, part);
+      }
 
-    // Build BOM lookup: parentPartId -> [{ childPartId, quantityRequired }]
-    const bomMap: Record<number, { childPartId: number; quantityRequired: number }[]> = {};
-    const seenDeps = new Set<string>();
-    for (const dep of allBomDeps) {
-      const key = `${dep.parentPartId}-${dep.childPartId}`;
-      if (seenDeps.has(key)) continue;
-      seenDeps.add(key);
-      if (!bomMap[dep.parentPartId]) bomMap[dep.parentPartId] = [];
-      bomMap[dep.parentPartId].push({ childPartId: dep.childPartId, quantityRequired: dep.quantityRequired });
-    }
+      const supplyRulesMap = new Map<number, typeof allSupplyRules[number]>();
+      for (const rule of allSupplyRules) {
+        supplyRulesMap.set(rule.partNumberId, rule);
+      }
 
-    // For each active WO, track its partNumberId so we can find sub-assembly WOs
-    // ordersByPartId: partNumberId -> WorkOrders that produce that part
-    const ordersByPartId: Record<number, typeof orders> = {};
-    for (const order of orders) {
-      if (!ordersByPartId[order.partNumberId]) ordersByPartId[order.partNumberId] = [];
-      ordersByPartId[order.partNumberId].push(order);
-    }
+      // Build BOM lookup: parentPartId -> [{ childPartId, quantityRequired }]
+      const bomMap: Record<number, { childPartId: number; quantityRequired: number }[]> = {};
+      const seenDeps = new Set<string>();
+      for (const dep of allBomDeps) {
+        const key = `${dep.parentPartId}-${dep.childPartId}`;
+        if (seenDeps.has(key)) continue;
+        seenDeps.add(key);
+        if (!bomMap[dep.parentPartId]) bomMap[dep.parentPartId] = [];
+        bomMap[dep.parentPartId].push({ childPartId: dep.childPartId, quantityRequired: dep.quantityRequired });
+      }
 
-    // Pre-scheduling shortage check
-    // 1. Calculate supply: sum up quantity produced by all active child work orders
-    const supplyByPartId: Record<number, number> = {};
-    for (const part of allParts) {
-      const childWOs = ordersByPartId[part.id] || [];
-      supplyByPartId[part.id] = childWOs.reduce((sum, wo) => sum + wo.quantity, 0);
-    }
+      // For each active WO, track its partNumberId so we can find sub-assembly WOs
+      const ordersByPartId: Record<number, typeof orders> = {};
+      for (const order of orders) {
+        if (!ordersByPartId[order.partNumberId]) ordersByPartId[order.partNumberId] = [];
+        ordersByPartId[order.partNumberId].push(order);
+      }
 
-    // 2. Calculate demand: sum up child units needed across all active parent work orders
-    const demandByChildId: Record<number, number> = {};
-    // Track affected orders per child ID
-    const affectedOrdersByChildId: Record<number, {
-      workOrderId: number;
-      workOrderNumber: string | null;
-      parentPartNumber: string;
-      parentPartId: number;
-      quantityRequired: number;
-    }[]> = {};
-
-    for (const order of orders) {
-      const deps = bomMap[order.partNumberId] || [];
-      const parentPart = partsMap.get(order.partNumberId);
-      const parentPartNumber = parentPart?.partNumber || "Unknown";
-
-      for (const dep of deps) {
-        const childPartId = dep.childPartId;
-        const qtyNeeded = order.quantity * dep.quantityRequired;
-        
-        demandByChildId[childPartId] = (demandByChildId[childPartId] || 0) + qtyNeeded;
-
-        if (!affectedOrdersByChildId[childPartId]) {
-          affectedOrdersByChildId[childPartId] = [];
+      // Build compatibility lookup (includes changeover time)
+      const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[]> = {};
+      for (const c of allCompatibility) {
+        if (!compatibilityMap[c.partNumberId]) {
+          compatibilityMap[c.partNumberId] = [];
         }
-        affectedOrdersByChildId[childPartId].push({
-          workOrderId: order.id,
-          workOrderNumber: order.workOrderNumber ?? null,
-          parentPartNumber,
-          parentPartId: order.partNumberId,
-          quantityRequired: qtyNeeded
+        compatibilityMap[c.partNumberId].push({ 
+          equipmentId: c.equipmentId, 
+          durationMinutes: c.durationMinutes,
+          changeoverMinutes: c.changeoverMinutes ?? null
         });
       }
-    }
-
-    // 3. Compare supply vs demand to identify shortages
-    const shortageWarnings: import("../shared/schema").ShortageWarning[] = [];
-    for (const childIdStr of Object.keys(demandByChildId)) {
-      const childId = Number(childIdStr);
-      const demand = demandByChildId[childId];
-      const supply = supplyByPartId[childId] || 0;
-      if (supply < demand) {
-        const childPart = partsMap.get(childId);
-        shortageWarnings.push({
-          childPartId: childId,
-          childPartNumber: childPart?.partNumber || "Unknown",
-          totalDemand: demand,
-          totalSupply: supply,
-          shortage: demand - supply,
-          affectedOrders: affectedOrdersByChildId[childId] || []
-        });
-      }
-    }
-    
-    // Build compatibility lookup (includes changeover time)
-    const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[]> = {};
-    for (const c of allCompatibility) {
-      if (!compatibilityMap[c.partNumberId]) {
-        compatibilityMap[c.partNumberId] = [];
-      }
-      compatibilityMap[c.partNumberId].push({ 
-        equipmentId: c.equipmentId, 
-        durationMinutes: c.durationMinutes,
-        changeoverMinutes: c.changeoverMinutes ?? null
-      });
-    }
-    
-    // Build changeover lookup: partNumberId -> equipmentId -> changeoverMinutes
-    const changeoverMap: Record<number, Record<number, number>> = {};
-    for (const c of allCompatibility) {
-      if (c.changeoverMinutes && c.changeoverMinutes > 0) {
-        if (!changeoverMap[c.partNumberId]) {
-          changeoverMap[c.partNumberId] = {};
+      
+      // Build changeover lookup: partNumberId -> equipmentId -> changeoverMinutes
+      const changeoverMap: Record<number, Record<number, number>> = {};
+      for (const c of allCompatibility) {
+        if (c.changeoverMinutes && c.changeoverMinutes > 0) {
+          if (!changeoverMap[c.partNumberId]) {
+            changeoverMap[c.partNumberId] = {};
+          }
+          changeoverMap[c.partNumberId][c.equipmentId] = c.changeoverMinutes;
         }
-        changeoverMap[c.partNumberId][c.equipmentId] = c.changeoverMinutes;
       }
-    }
-    
-    const chamberIds = new Set(chambers.map(c => c.id));
-    
-    // Initialize machine availability
-    const now = new Date();
-    const workingStartTime = getNextWorkingTime(now, shifts, workDays);
-    
-    const machineAvailability: Record<number, Date[]> = {};
-    equipmentList.forEach(eq => {
-      machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
-    });
-    
-    // Track last part run on each chamber unit for changeover calculation
-    // equipmentId -> unitIdx -> partNumberId
-    const chamberLastPart: Record<number, Record<number, number | null>> = {};
-    for (const chamber of chambers) {
-      chamberLastPart[chamber.id] = {};
-      for (let i = 0; i < chamber.quantity; i++) {
-        chamberLastPart[chamber.id][i] = null;  // No previous part at start
-      }
-    }
+      
+      const chamberIds = new Set(chambers.map(c => c.id));
+      const vibeEquipment = equipmentList.find(e => e.name.toLowerCase().includes("vibration"));
+      const vibeEquipmentId = vibeEquipment ? vibeEquipment.id : 10;
+      const mainEquipmentIds = new Set([...chamberIds, vibeEquipmentId]);
+      const now = new Date();
+      const workingStartTime = getNextWorkingTime(now, shifts, workDays);
 
-    // Build list of all pending batch tasks (order-step-batch combinations)
-    // This enables pipeline scheduling where batches can overlap between steps
-    interface PendingBatch {
-      orderId: number;
-      orderPriority: number;
-      partNumberId: number;
-      partNumber: string;
-      stepId: number;
-      stepOrder: number;
-      step: any;
-      batchIndex: number;      // Which batch this is (0-based)
-      unitsInBatch: number;    // How many units in this specific batch
-      totalBatches: number;    // Total batches for this step
-    }
-    
-    const pendingBatches: PendingBatch[] = [];
-    
-    // Track batch completions with their unit counts: orderId -> stepOrder -> array of {endTime, unitsCompleted}
-    const batchCompletions: Record<number, Record<number, { endTime: Date; unitsCompleted: number }[]>> = {};
-    
-    for (const order of orders) {
-      const part = partsMap.get(order.partNumberId);
-      if (!part || !part.steps || part.steps.length === 0) continue;
-      
-      batchCompletions[order.id] = {};
-      
-      // Initialize batchCompletions with pre-completed units from stepOffsets
-      const offsetsMap: Record<number, number> = {};
-      if (order.stepOffsets) {
-        order.stepOffsets.forEach(offset => {
-          offsetsMap[offset.stepId] = offset.quantityCompleted;
-        });
-      }
-      
-      for (const step of part.steps) {
-        batchCompletions[order.id][step.stepOrder] = [];
-        
-        const completedCount = offsetsMap[step.id] || 0;
-        
-        // IMPORTANT: If a LATER step has completions, it implies EARLIER steps 
-        // are also completed for those units.
-        let impliedCompletedCount = completedCount;
-        for (const otherStep of part.steps) {
-          if (otherStep.stepOrder > step.stepOrder) {
-            const otherCompleted = offsetsMap[otherStep.id] || 0;
-            if (otherCompleted > impliedCompletedCount) {
-              impliedCompletedCount = otherCompleted;
-            }
+      // Pre-scheduling shortage check (updated to include supply rules)
+      const supplyByPartId: Record<number, number> = {};
+      for (const part of allParts) {
+        const childWOs = ordersByPartId[part.id] || [];
+        let supply = childWOs.reduce((sum, wo) => sum + wo.quantity, 0);
+
+        const rule = supplyRulesMap.get(part.id);
+        if (rule) {
+          if (rule.fixedSupplies) {
+            try {
+              const fixed = JSON.parse(rule.fixedSupplies);
+              if (Array.isArray(fixed)) {
+                supply += fixed.reduce((sum, f) => sum + (Number(f.quantity) || 0), 0);
+              }
+            } catch (e) {}
+          }
+          if (rule.expectedSupplyRate) {
+            supply += rule.expectedSupplyRate * 30; // 30 days projection
           }
         }
-
-        if (impliedCompletedCount > 0) {
-          // Add a "virtual" completion at the start time for the already finished units
-          batchCompletions[order.id][step.stepOrder].push({
-            endTime: workingStartTime,
-            unitsCompleted: impliedCompletedCount
-          });
-        }
-
-        const remainingQtyToProcess = order.quantity - impliedCompletedCount;
-        if (remainingQtyToProcess <= 0) continue;
-
-        const batchSize = step.batchSize;
-        const totalBatches = Math.ceil(remainingQtyToProcess / batchSize);
-        
-        for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-          const unitsInThisBatch = Math.min(batchSize, remainingQtyToProcess - (batchIdx * batchSize));
-          
-          pendingBatches.push({
-            orderId: order.id,
-            orderPriority: order.priority ?? 0,
-            partNumberId: order.partNumberId,
-            partNumber: part.partNumber,
-            stepId: step.id,
-            stepOrder: step.stepOrder,
-            step,
-            batchIndex: batchIdx,
-            unitsInBatch: unitsInThisBatch,
-            totalBatches
-          });
-        }
+        supplyByPartId[part.id] = supply;
       }
-    }
-    
-    // Helper: Calculate when enough units are ready for a batch to start
-    // For step N batch B, we need enough units from step N-1 to fill this batch
-    function getMinStartTimeForBatch(batch: PendingBatch, ignoreBOM = false): Date {
-      if (batch.stepOrder === 1) {
-        if (ignoreBOM) {
-          return new Date(workingStartTime);
-        }
-        // BOM pipeline constraint: this parent batch can start as soon as enough
-        // child sub-assembly units are done to satisfy THIS specific batch position.
-        // Uses the same chronological accumulation pattern as intra-order step pipelining.
-        let minTime = new Date(workingStartTime);
-        const deps = bomMap[batch.partNumberId] || [];
+
+      // Calculate demand: sum up child units needed across all active parent work orders
+      const demandByChildId: Record<number, number> = {};
+      const affectedOrdersByChildId: Record<number, {
+        workOrderId: number;
+        workOrderNumber: string | null;
+        parentPartNumber: string;
+        parentPartId: number;
+        quantityRequired: number;
+      }[]> = {};
+
+      for (const order of orders) {
+        const deps = bomMap[order.partNumberId] || [];
+        const parentPart = partsMap.get(order.partNumberId);
+        const parentPartNumber = parentPart?.partNumber || "Unknown";
 
         for (const dep of deps) {
-          const childOrders = ordersByPartId[dep.childPartId] || [];
-          if (childOrders.length === 0) continue;
+          const childPartId = dep.childPartId;
+          const qtyNeeded = order.quantity * dep.quantityRequired;
+          
+          demandByChildId[childPartId] = (demandByChildId[childPartId] || 0) + qtyNeeded;
 
-          // Cumulative parent units produced up to and including this batch
-          const parentUnitsCumulative = batch.batchIndex * batch.step.batchSize + batch.unitsInBatch;
-          // Child units needed before this parent batch can start
-          const childUnitsNeeded = parentUnitsCumulative * dep.quantityRequired;
-
-          // Collect last-step completions from all child WOs that produce this child part
-          const allChildCompletions: { endTime: Date; unitsCompleted: number }[] = [];
-          for (const childOrder of childOrders) {
-            const childComps = batchCompletions[childOrder.id];
-            if (!childComps) continue;
-            const stepKeys = Object.keys(childComps).map(Number);
-            if (stepKeys.length === 0) continue;
-            const lastStep = Math.max(...stepKeys);
-            allChildCompletions.push(...(childComps[lastStep] || []));
+          if (!affectedOrdersByChildId[childPartId]) {
+            affectedOrdersByChildId[childPartId] = [];
           }
+          affectedOrdersByChildId[childPartId].push({
+            workOrderId: order.id,
+            workOrderNumber: order.workOrderNumber ?? null,
+            parentPartNumber,
+            parentPartId: order.partNumberId,
+            quantityRequired: qtyNeeded
+          });
+        }
+      }
 
-          if (allChildCompletions.length === 0) {
-            return new Date(8640000000000000); // No child units scheduled yet
+      // Compare supply vs demand to identify shortages
+      const shortageWarnings: import("../shared/schema").ShortageWarning[] = [];
+      for (const childIdStr of Object.keys(demandByChildId)) {
+        const childId = Number(childIdStr);
+        const demand = demandByChildId[childId];
+        const supply = supplyByPartId[childId] || 0;
+        if (supply < demand) {
+          const childPart = partsMap.get(childId);
+          shortageWarnings.push({
+            childPartId: childId,
+            childPartNumber: childPart?.partNumber || "Unknown",
+            totalDemand: demand,
+            totalSupply: supply,
+            shortage: demand - supply,
+            affectedOrders: affectedOrdersByChildId[childId] || []
+          });
+        }
+      }
+
+      const rawSupplyCache = new Map<string, Date>();
+      const childReadyCache = new Map<string, Date>();
+
+      // Helper to find when raw incoming subassemblies are supplied from vendor/pre-production
+      function _getRawPartSupplyTime(partId: number, unitsNeeded: number): Date {
+        if (unitsNeeded <= 0) return new Date(workingStartTime);
+        
+        const rule = supplyRulesMap.get(partId);
+        if (!rule) {
+          return new Date(workingStartTime);
+        }
+        
+        const initialEvents: { time: number; qty: number }[] = [];
+        const expectedRate = rule.expectedSupplyRate || 0;
+        
+        if (rule.fixedSupplies) {
+          try {
+            const fixed = JSON.parse(rule.fixedSupplies);
+            if (Array.isArray(fixed)) {
+              for (const f of fixed) {
+                if (f.date && f.quantity) {
+                  initialEvents.push({
+                    time: new Date(f.date).getTime(),
+                    qty: Number(f.quantity)
+                  });
+                }
+              }
+            }
+          } catch (e) {}
+        }
+        
+        const startHour = shifts === 3 ? 0 : SHIFT_START_HOUR;
+        return getSupplyTimeFromEventsAndRate(expectedRate, initialEvents, unitsNeeded, workingStartTime, shifts, workDays, startHour);
+      }
+
+      function getRawPartSupplyTime(partId: number, unitsNeeded: number): Date {
+        const cacheKey = `${partId}-${unitsNeeded}`;
+        const cached = rawSupplyCache.get(cacheKey);
+        if (cached) return cached;
+        const res = _getRawPartSupplyTime(partId, unitsNeeded);
+        rawSupplyCache.set(cacheKey, res);
+        return res;
+      }
+
+      // Helper to find the earliest time when we have enough child units
+      function _getChildReadyTime(
+        childPartId: number, 
+        childUnitsNeeded: number, 
+        batchCompletions: Record<number, Record<number, { endTime: Date; unitsCompleted: number }[]>>
+      ): Date {
+        if (childUnitsNeeded <= 0) return new Date(workingStartTime);
+
+        const childOrders = ordersByPartId[childPartId] || [];
+        const initialEvents: { time: number; qty: number }[] = [];
+
+        // 1. Gather discrete completions from child WOs
+        for (const childOrder of childOrders) {
+          const childComps = batchCompletions[childOrder.id];
+          if (!childComps) continue;
+          const stepKeys = Object.keys(childComps).map(Number);
+          if (stepKeys.length === 0) continue;
+          const lastStep = Math.max(...stepKeys);
+          for (const comp of (childComps[lastStep] || [])) {
+            initialEvents.push({
+              time: comp.endTime.getTime(),
+              qty: comp.unitsCompleted
+            });
           }
+        }
 
-          // Walk completions chronologically; stop when enough child units have been done
-          const sorted = [...allChildCompletions].sort((a, b) => a.endTime.getTime() - b.endTime.getTime());
-          let accumulated = 0;
-          let readyAt: Date | null = null;
-          for (const c of sorted) {
-            accumulated += c.unitsCompleted;
-            if (accumulated >= childUnitsNeeded) {
-              readyAt = c.endTime;
-              break;
+        // 2. Gather fixed supplies from rules ONLY if there are no active child WOs
+        const rule = supplyRulesMap.get(childPartId);
+        let expectedRate = 0;
+        if (rule && childOrders.length === 0) {
+          expectedRate = rule.expectedSupplyRate || 0;
+          if (rule.fixedSupplies) {
+            try {
+              const fixed = JSON.parse(rule.fixedSupplies);
+              if (Array.isArray(fixed)) {
+                for (const f of fixed) {
+                  if (f.date && f.quantity) {
+                    initialEvents.push({
+                      time: new Date(f.date).getTime(),
+                      qty: Number(f.quantity)
+                    });
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+        }
+
+        const startHour = shifts === 3 ? 0 : SHIFT_START_HOUR;
+        return getSupplyTimeFromEventsAndRate(expectedRate, initialEvents, childUnitsNeeded, workingStartTime, shifts, workDays, startHour);
+      }
+
+      function getChildReadyTime(
+        childPartId: number, 
+        childUnitsNeeded: number, 
+        batchCompletions: Record<number, Record<number, { endTime: Date; unitsCompleted: number }[]>>
+      ): Date {
+        const cacheKey = `${childPartId}-${childUnitsNeeded}`;
+        const cached = childReadyCache.get(cacheKey);
+        if (cached) return cached;
+        const res = _getChildReadyTime(childPartId, childUnitsNeeded, batchCompletions);
+        childReadyCache.set(cacheKey, res);
+        return res;
+      }
+
+      // Helper function to simulate scheduling
+      function runSimulation(ignoreBOM: boolean, unconstrainedStartTimes?: Record<string, Date>) {
+        const machineAvailability: Record<number, Date[]> = {};
+        equipmentList.forEach(eq => {
+          machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
+        });
+        
+        const equipmentLastPart: Record<number, Record<number, number | null>> = {};
+        equipmentList.forEach(eq => {
+          equipmentLastPart[eq.id] = {};
+          for (let i = 0; i < eq.quantity; i++) {
+            equipmentLastPart[eq.id][i] = null;
+          }
+        });
+
+        interface PendingBatch {
+          orderId: number;
+          orderPriority: number;
+          partNumberId: number;
+          partNumber: string;
+          stepId: number;
+          stepOrder: number;
+          step: any;
+          batchIndex: number;
+          unitsInBatch: number;
+          totalBatches: number;
+        }
+        
+        const pendingBatches: PendingBatch[] = [];
+        const batchCompletions: Record<number, Record<number, { endTime: Date; unitsCompleted: number }[]>> = {};
+        const globalConsumed: Record<number, number> = {};
+        
+        for (const order of orders) {
+          const part = partsMap.get(order.partNumberId);
+          if (!part || !part.steps || part.steps.length === 0) continue;
+          
+          batchCompletions[order.id] = {};
+          const offsetsMap: Record<number, number> = {};
+          if (order.stepOffsets) {
+            order.stepOffsets.forEach(offset => {
+              offsetsMap[offset.stepId] = offset.quantityCompleted;
+            });
+          }
+          
+          for (const step of part.steps) {
+            batchCompletions[order.id][step.stepOrder] = [];
+            const completedCount = offsetsMap[step.id] || 0;
+            
+            let impliedCompletedCount = completedCount;
+            for (const otherStep of part.steps) {
+              if (otherStep.stepOrder > step.stepOrder) {
+                const otherCompleted = offsetsMap[otherStep.id] || 0;
+                if (otherCompleted > impliedCompletedCount) {
+                  impliedCompletedCount = otherCompleted;
+                }
+              }
+            }
+
+            if (impliedCompletedCount > 0) {
+              batchCompletions[order.id][step.stepOrder].push({
+                endTime: workingStartTime,
+                unitsCompleted: impliedCompletedCount
+              });
+            }
+
+            const remainingQtyToProcess = order.quantity - impliedCompletedCount;
+            if (remainingQtyToProcess <= 0) continue;
+
+            const batchSize = step.batchSize;
+            const totalBatches = Math.ceil(remainingQtyToProcess / batchSize);
+            
+            for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+              const unitsInThisBatch = Math.min(batchSize, remainingQtyToProcess - (batchIdx * batchSize));
+              pendingBatches.push({
+                orderId: order.id,
+                orderPriority: order.priority ?? 0,
+                partNumberId: order.partNumberId,
+                partNumber: part.partNumber,
+                stepId: step.id,
+                stepOrder: step.stepOrder,
+                step,
+                batchIndex: batchIdx,
+                unitsInBatch: unitsInThisBatch,
+                totalBatches
+              });
             }
           }
+        }
 
-          if (!readyAt) {
-            return new Date(8640000000000000); // Not enough child units will be produced
+        function getMinStartTimeForBatch(batch: PendingBatch, ignoreBOMOverride = false): { time: Date; constrainingChildPartId: number | null } {
+          if (batch.stepOrder === 1) {
+            if (ignoreBOM || ignoreBOMOverride) {
+              return { time: new Date(workingStartTime), constrainingChildPartId: null };
+            }
+
+            let minTime = new Date(workingStartTime);
+            let constrainingChildPartId: number | null = null;
+            
+            // Constrain by raw part supply if this part has a supply rule
+            const rawSupplyTime = getRawPartSupplyTime(batch.partNumberId, (batch.batchIndex * batch.step.batchSize) + batch.unitsInBatch);
+            if (rawSupplyTime.getTime() === 8640000000000000) {
+              return { time: new Date(8640000000000000), constrainingChildPartId: batch.partNumberId };
+            }
+            if (rawSupplyTime > minTime) {
+              minTime = rawSupplyTime;
+              constrainingChildPartId = batch.partNumberId;
+            }
+
+            const deps = bomMap[batch.partNumberId] || [];
+
+            for (const dep of deps) {
+              const neededFromThisBatch = batch.unitsInBatch * dep.quantityRequired;
+              const childUnitsNeeded = (globalConsumed[dep.childPartId] || 0) + neededFromThisBatch;
+
+              const readyAt = getChildReadyTime(dep.childPartId, childUnitsNeeded, batchCompletions);
+              if (readyAt.getTime() === 8640000000000000) {
+                return { time: new Date(8640000000000000), constrainingChildPartId: dep.childPartId };
+              }
+              if (readyAt > minTime) {
+                minTime = readyAt;
+                constrainingChildPartId = dep.childPartId;
+              }
+            }
+            return { time: minTime, constrainingChildPartId };
           }
-
-          if (readyAt > minTime) minTime = readyAt;
-        }
-
-        return minTime;
-      }
-      
-      // For subsequent steps, need to wait for enough units from previous step
-      const prevStepCompletions = batchCompletions[batch.orderId][batch.stepOrder - 1] || [];
-      
-      // If no previous step batches have completed yet, this batch isn't ready
-      if (prevStepCompletions.length === 0) {
-        return new Date(8640000000000000); // Far future - not ready yet
-      }
-      
-      // Calculate how many units we need for this batch to start
-      // We need enough completed units to fill this batch entirely
-      const currentStepBatchSize = batch.step.batchSize;
-      const unitsNeededForThisBatch = (batch.batchIndex + 1) * currentStepBatchSize;
-      
-      // Sort completions by end time and accumulate units to find when we have enough
-      const sortedCompletions = [...prevStepCompletions].sort((a, b) => a.endTime.getTime() - b.endTime.getTime());
-      
-      let unitsCompleted = 0;
-      for (const completion of sortedCompletions) {
-        // Add the units from this completed batch (tracked when it was scheduled)
-        unitsCompleted += completion.unitsCompleted;
-        
-        // Check if we have enough units to start this batch
-        // Need enough to fill this batch (or at least the actual units in this batch for last batch)
-        if (unitsCompleted >= Math.min(unitsNeededForThisBatch, batch.unitsInBatch + batch.batchIndex * currentStepBatchSize)) {
-          return completion.endTime;
-        }
-      }
-      
-      // Not enough units completed yet
-      return new Date(8640000000000000); // Far future - not ready yet
-    }
-
-    const tasks: ScheduledTask[] = [];
-    
-    // Helper function to find earliest equipment availability for a single batch
-    function findEarliestSlotForBatch(batch: PendingBatch, minStartTime: Date): {
-      startTime: Date;
-      endTime: Date;
-      selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[];
-      chamberDuration: number | null;
-    } | null {
-      const step = batch.step;
-      const partCompatibleChambers = compatibilityMap[batch.partNumberId] || [];
-      const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
-      
-      // For batch scheduling, we only schedule 1 batch at a time
-      const batchesNeeded = 1;
-      
-      const eqRequirements = (step.equipmentRequirements || []).filter(
-        (req: any) => !chamberIds.has(req.equipmentId)
-      );
-
-      let selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[] = [];
-      // Start with minStartTime so equipment slots are compared against unit availability too
-      let machinesReadyAt = new Date(minStartTime);
-      
-      // Find non-chamber equipment
-      for (const req of eqRequirements) {
-        const eqId = req.equipmentId;
-        const slots = machineAvailability[eqId];
-        if (!slots) continue;
-        
-        const unitsNeeded = req.quantityRequired || 1;
-        const slotIndices = slots.map((time: Date, idx: number) => ({ idx, time }))
-          .sort((a: any, b: any) => a.time.getTime() - b.time.getTime());
-        
-        const selectedSlots = slotIndices.slice(0, Math.min(unitsNeeded, slots.length));
-        
-        if (selectedSlots.length > 0) {
-          const lastSlotTime = selectedSlots[selectedSlots.length - 1].time;
-          if (lastSlotTime > machinesReadyAt) {
-            machinesReadyAt = lastSlotTime;
-          }
-        }
-        
-        for (const slot of selectedSlots) {
-          selectedUnits.push({ eqId, unitIdx: slot.idx, durationMinutes: req.durationMinutes ?? null });
-        }
-      }
-      
-      // Handle chamber requirement
-      let chamberDuration: number | null = null;
-      
-      if (step.chamberRequired) {
-        let availableChambers: { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[];
-        
-        if (hasCompatibilityRestrictions) {
-          availableChambers = partCompatibleChambers;
-        } else {
-          availableChambers = chambers.map(c => ({ equipmentId: c.id, durationMinutes: null, changeoverMinutes: null }));
-        }
-        
-        if (availableChambers.length === 0) return null;
-        
-        let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAt: Date; changeoverApplied: number } | null = null;
-        
-        for (const chamberInfo of availableChambers) {
-          const eqId = chamberInfo.equipmentId;
-          const slots = machineAvailability[eqId];
-          if (!slots) continue;
           
-          for (let i = 0; i < slots.length; i++) {
-            // Check if changeover time applies (different part from last run on this unit)
-            let changeoverTime = 0;
-            const lastPartOnUnit = chamberLastPart[eqId]?.[i];
-            if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
-              // Different part - apply changeover time if configured
-              const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
-              if (partChangeoverConfig) {
-                changeoverTime = partChangeoverConfig;
+          const prevStepCompletions = batchCompletions[batch.orderId][batch.stepOrder - 1] || [];
+          if (prevStepCompletions.length === 0) return { time: new Date(8640000000000000), constrainingChildPartId: null };
+          
+          const currentStepBatchSize = batch.step.batchSize;
+          const unitsNeededForThisBatch = (batch.batchIndex + 1) * currentStepBatchSize;
+          
+          let unitsCompleted = 0;
+          for (const completion of prevStepCompletions) {
+            unitsCompleted += completion.unitsCompleted;
+            if (unitsCompleted >= Math.min(unitsNeededForThisBatch, batch.unitsInBatch + batch.batchIndex * currentStepBatchSize)) {
+              return { time: completion.endTime, constrainingChildPartId: null };
+            }
+          }
+          return { time: new Date(8640000000000000), constrainingChildPartId: null };
+        }
+
+        function findEarliestSlotForBatch(batch: PendingBatch, minStartTime: Date) {
+          const step = batch.step;
+          const partCompatibleChambers = compatibilityMap[batch.partNumberId] || [];
+          const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
+          const eqRequirements = (step.equipmentRequirements || []).filter((req: any) => !chamberIds.has(req.equipmentId));
+
+          let selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[] = [];
+          let machinesReadyAtMs = minStartTime.getTime();
+          const minStartTimeMs = minStartTime.getTime();
+          
+          for (const req of eqRequirements) {
+            const eqId = req.equipmentId;
+            const slots = machineAvailability[eqId];
+            if (!slots) continue;
+            
+            const unitsNeeded = req.quantityRequired || 1;
+            
+            const slotIndices = slots.map((time: Date, idx: number) => {
+              let changeoverTime = 0;
+              const lastPartOnUnit = equipmentLastPart[eqId]?.[idx];
+              if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
+                if (eqId === vibeEquipmentId) {
+                  changeoverTime = 30; // 30 min hardcoded for Vibration
+                } else {
+                  const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
+                  if (partChangeoverConfig) changeoverTime = partChangeoverConfig;
+                }
+              }
+              
+              const timeMs = time.getTime();
+              const baseAvailableMs = Math.max(timeMs, minStartTimeMs);
+              
+              let afterChangeoverMs = baseAvailableMs;
+              if (changeoverTime > 0) {
+                const baseAvailableDate = new Date(baseAvailableMs);
+                const afterChangeoverDate = addWorkingMinutes(baseAvailableDate, changeoverTime, shifts, workDays);
+                afterChangeoverMs = afterChangeoverDate.getTime();
+              }
+              
+              return { idx, timeMs: afterChangeoverMs };
+            }).sort((a: any, b: any) => a.timeMs - b.timeMs);
+            
+            const selectedSlots = slotIndices.slice(0, Math.min(unitsNeeded, slots.length));
+            if (selectedSlots.length > 0) {
+              const lastSlotTimeMs = selectedSlots[selectedSlots.length - 1].timeMs;
+              if (lastSlotTimeMs > machinesReadyAtMs) machinesReadyAtMs = lastSlotTimeMs;
+            }
+            for (const slot of selectedSlots) {
+              selectedUnits.push({ eqId, unitIdx: slot.idx, durationMinutes: req.durationMinutes ?? null });
+            }
+          }
+          
+          let chamberDuration: number | null = null;
+          if (step.chamberRequired) {
+            let availableChambers = hasCompatibilityRestrictions
+              ? partCompatibleChambers
+              : chambers.map(c => ({ equipmentId: c.id, durationMinutes: null, changeoverMinutes: null }));
+            
+            if (availableChambers.length === 0) return null;
+            let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAtMs: number } | null = null;
+            
+            for (const chamberInfo of availableChambers) {
+              const eqId = chamberInfo.equipmentId;
+              const slots = machineAvailability[eqId];
+              if (!slots) continue;
+              
+              for (let i = 0; i < slots.length; i++) {
+                let changeoverTime = 0;
+                const lastPartOnUnit = equipmentLastPart[eqId]?.[i];
+                if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
+                  if (eqId === vibeEquipmentId) {
+                    changeoverTime = 30; // 30 min hardcoded for Vibration
+                  } else {
+                    const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
+                    if (partChangeoverConfig) changeoverTime = partChangeoverConfig;
+                  }
+                }
+                
+                const slotTimeMs = slots[i].getTime();
+                const baseAvailableMs = Math.max(slotTimeMs, machinesReadyAtMs, minStartTimeMs);
+                
+                let afterChangeoverMs = baseAvailableMs;
+                if (changeoverTime > 0) {
+                  const baseAvailableDate = new Date(baseAvailableMs);
+                  const afterChangeoverDate = addWorkingMinutes(baseAvailableDate, changeoverTime, shifts, workDays);
+                  afterChangeoverMs = afterChangeoverDate.getTime();
+                }
+                
+                if (!selectedChamber || afterChangeoverMs < selectedChamber.availableAtMs) {
+                  selectedChamber = { eqId, unitIdx: i, durationMinutes: chamberInfo.durationMinutes, availableAtMs: afterChangeoverMs };
+                }
               }
             }
             
-            // Calculate effective available time: max of chamber slot, non-chamber machines ready, and unit readiness
-            const baseAvailableAt = new Date(Math.max(slots[i].getTime(), machinesReadyAt.getTime(), minStartTime.getTime()));
-            // Apply changeover using working minutes and then ensure start is in working hours
-            // (Chamber steps must START during working hours, but changeover is setup time)
-            const afterChangeover = changeoverTime > 0 
-              ? addWorkingMinutes(baseAvailableAt, changeoverTime, shifts, workDays)
-              : baseAvailableAt;
-            // Ensure the start time is within working hours (chamber rule)
-            const slotAvailableAt = getNextWorkingTime(afterChangeover, shifts, workDays);
-            
-            if (!selectedChamber || slotAvailableAt < selectedChamber.availableAt) {
-              selectedChamber = { 
-                eqId, 
-                unitIdx: i, 
-                durationMinutes: chamberInfo.durationMinutes,
-                availableAt: slotAvailableAt,
-                changeoverApplied: changeoverTime
-              };
+            if (!selectedChamber) return null;
+            if (selectedChamber.availableAtMs > machinesReadyAtMs) machinesReadyAtMs = selectedChamber.availableAtMs;
+            selectedUnits.push({ eqId: selectedChamber.eqId, unitIdx: selectedChamber.unitIdx, durationMinutes: selectedChamber.durationMinutes });
+            chamberDuration = selectedChamber.durationMinutes;
+          }
+          
+          if (selectedUnits.length === 0) return null;
+          let effectiveDuration = step.durationMinutes;
+          if (step.chamberRequired && chamberDuration !== null) effectiveDuration = chamberDuration;
+          
+          const machinesReadyAt = new Date(machinesReadyAtMs);
+          const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts, workDays);
+          const actualEndTime = step.chamberRequired 
+            ? addMinutes(actualStartTime, effectiveDuration)
+            : addWorkingMinutes(actualStartTime, effectiveDuration, shifts, workDays);
+          
+          return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits };
+        }
+
+        const tasksList: ScheduledTask[] = [];
+
+        interface CachedSlot {
+          minTime: Date;
+          constrainingChildPartId: number | null;
+          slot: ReturnType<typeof findEarliestSlotForBatch> | null;
+          dirty: boolean;
+        }
+
+        const slotCache = new Map<string, CachedSlot>();
+        const batchBottleneckMap = new Map<string, number>();
+
+        // Greedy scheduling passes
+        for (const passIgnoreBOM of [false, true]) {
+          slotCache.clear();
+          childReadyCache.clear();
+          while (pendingBatches.length > 0) {
+            const readyBatches: PendingBatch[] = [];
+            for (const batch of pendingBatches) {
+              const batchKey = `${batch.orderId}-${batch.stepId}-${batch.batchIndex}`;
+              let cached = slotCache.get(batchKey);
+              if (!cached || cached.dirty) {
+                const { time: minTime, constrainingChildPartId } = getMinStartTimeForBatch(batch, passIgnoreBOM);
+                if (minTime.getTime() < 8640000000000000) {
+                  const slot = findEarliestSlotForBatch(batch, minTime);
+                  cached = { minTime, constrainingChildPartId, slot, dirty: false };
+                } else {
+                  cached = { minTime, constrainingChildPartId, slot: null, dirty: false };
+                }
+                slotCache.set(batchKey, cached);
+              }
+
+              if (cached.minTime.getTime() < 8640000000000000) {
+                readyBatches.push(batch);
+              } else {
+                if (!passIgnoreBOM && cached.constrainingChildPartId !== null) {
+                  batchBottleneckMap.set(batchKey, cached.constrainingChildPartId);
+                }
+              }
             }
+            if (readyBatches.length === 0) break;
+            
+            const batchOptions: { batch: PendingBatch; slot: ReturnType<typeof findEarliestSlotForBatch>; constrainingChildPartId: number | null; baseTimeMs: number; biasedTimeMs: number }[] = [];
+            for (const batch of readyBatches) {
+              const batchKey = `${batch.orderId}-${batch.stepId}-${batch.batchIndex}`;
+              const cached = slotCache.get(batchKey)!;
+              if (cached.slot) {
+                let hasChangeover = false;
+                for (const unit of cached.slot.selectedUnits) {
+                  const lastPartOnUnit = equipmentLastPart[unit.eqId]?.[unit.unitIdx];
+                  if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
+                    hasChangeover = true;
+                    break;
+                  }
+                }
+                const baseTimeMs = cached.slot.startTime.getTime();
+                const biasedTimeMs = hasChangeover ? baseTimeMs : baseTimeMs - 3600000;
+                
+                batchOptions.push({ batch, slot: cached.slot, constrainingChildPartId: cached.constrainingChildPartId, baseTimeMs, biasedTimeMs });
+              }
+            }
+            if (batchOptions.length === 0) break;
+            
+            batchOptions.sort((a, b) => {
+              const timeDiff = Math.abs(a.baseTimeMs - b.baseTimeMs);
+              if (timeDiff <= 14400000) { // 4 * 60 * 60 * 1000
+                const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
+                if (priorityDiff !== 0) return priorityDiff;
+              }
+              
+              if (a.biasedTimeMs !== b.biasedTimeMs) return a.biasedTimeMs - b.biasedTimeMs;
+              
+              const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
+              if (priorityDiff !== 0) return priorityDiff;
+              return a.batch.stepOrder - b.batch.stepOrder;
+            });
+            
+            const best = batchOptions[0];
+            const { batch, slot, constrainingChildPartId } = best;
+            const usedEquipmentNames = slot!.selectedUnits.map(u => {
+              const eq = equipmentList.find(e => e.id === u.eqId);
+              return eq?.name || "Unknown";
+            }).join(", ");
+
+            const taskId = batch.totalBatches > 1 
+              ? `wo-${batch.orderId}-step-${batch.stepId}-b${batch.batchIndex + 1}`
+              : `wo-${batch.orderId}-step-${batch.stepId}`;
+            
+            const batchKey = `${batch.orderId}-${batch.stepId}-${batch.batchIndex}`;
+            let isShortageAffected = false;
+            
+            const parentDeps = bomMap[batch.partNumberId] || [];
+            if (!ignoreBOM && !passIgnoreBOM && unconstrainedStartTimes && unconstrainedStartTimes[batchKey]) {
+              const uStart = unconstrainedStartTimes[batchKey];
+              if (slot!.startTime.getTime() > uStart.getTime()) {
+                if (constrainingChildPartId !== null) {
+                  const rule = supplyRulesMap.get(constrainingChildPartId);
+                  const expectedRate = rule?.expectedSupplyRate || 0;
+                  const optimalRate = optimalSupplyRates[constrainingChildPartId] || 0;
+                  if (expectedRate < optimalRate) {
+                    if (constrainingChildPartId === batch.partNumberId) {
+                      const parentUnitsCumulative = batch.batchIndex * batch.step.batchSize + batch.unitsInBatch;
+                      const rawSupplyTime = getRawPartSupplyTime(constrainingChildPartId, parentUnitsCumulative);
+                      if (rawSupplyTime.getTime() > uStart.getTime()) {
+                        isShortageAffected = true;
+                      }
+                    } else {
+                      const dep = parentDeps.find(d => d.childPartId === constrainingChildPartId);
+                      if (dep) {
+                        const neededFromThisBatch = batch.unitsInBatch * dep.quantityRequired;
+                        const childUnitsNeeded = (globalConsumed[dep.childPartId] || 0) + neededFromThisBatch;
+                        const rawSupplyTime = getRawPartSupplyTime(constrainingChildPartId, childUnitsNeeded);
+                        if (rawSupplyTime.getTime() > uStart.getTime()) {
+                          isShortageAffected = true;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            let constrainingSubassemblyName: string | undefined = undefined;
+            if (passIgnoreBOM) {
+              const bPartId = batchBottleneckMap.get(batchKey);
+              if (bPartId) {
+                const childPart = partsMap.get(bPartId);
+                if (childPart) constrainingSubassemblyName = childPart.partNumber;
+              }
+            } else if (isShortageAffected && constrainingChildPartId) {
+              const childPart = partsMap.get(constrainingChildPartId);
+              if (childPart) constrainingSubassemblyName = childPart.partNumber;
+            }
+
+            tasksList.push({
+              id: passIgnoreBOM ? `${taskId}-shortage` : taskId,
+              workOrderId: batch.orderId,
+              partNumber: batch.partNumber,
+              stepId: batch.stepId,
+              stepOrder: batch.stepOrder,
+              stepName: batch.step.name || undefined,
+              equipmentIds: slot!.selectedUnits.map(u => u.eqId),
+              equipmentUnitIndices: slot!.selectedUnits.map(u => u.unitIdx),
+              equipmentNames: usedEquipmentNames,
+              startTime: formatISO(slot!.startTime),
+              endTime: formatISO(slot!.endTime),
+              type: passIgnoreBOM ? "shortage_placeholder" : "test_run",
+              progress: 0,
+              dependencies: [],
+              unitsCount: batch.unitsInBatch,
+              isShortageAffected: isShortageAffected || undefined,
+              constrainingSubassemblyName
+            });
+            
+            for (const unit of slot!.selectedUnits) {
+              machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
+              equipmentLastPart[unit.eqId][unit.unitIdx] = batch.partNumberId;
+            }
+            
+            batchCompletions[batch.orderId][batch.stepOrder].push({
+              endTime: slot!.endTime,
+              unitsCompleted: batch.unitsInBatch
+            });
+
+            if (batch.stepOrder === 1) {
+              const deps = bomMap[batch.partNumberId] || [];
+              for (const dep of deps) {
+                globalConsumed[dep.childPartId] = (globalConsumed[dep.childPartId] || 0) + batch.unitsInBatch * dep.quantityRequired;
+              }
+            }
+
+            // Invalidate cache for dirty batches BEFORE removing best from pendingBatches
+            const updatedEqIds = new Set<number>(slot!.selectedUnits.map(u => u.eqId));
+            const updatedPartIds = new Set<number>([batch.partNumberId]);
+            const updatedOrderId = batch.orderId;
+            const updatedStepOrder = batch.stepOrder;
+
+            for (const b of pendingBatches) {
+              const bKey = `${b.orderId}-${b.stepId}-${b.batchIndex}`;
+              const cached = slotCache.get(bKey);
+              if (!cached || cached.dirty) continue;
+
+              let isDirty = false;
+
+              // 1. Check equipment overlap
+              const bEqReqs = b.step.equipmentRequirements || [];
+              for (const req of bEqReqs) {
+                if (updatedEqIds.has(req.equipmentId)) {
+                  isDirty = true;
+                  break;
+                }
+              }
+              if (!isDirty && b.step.chamberRequired) {
+                const bChambers = compatibilityMap[b.partNumberId] || [];
+                if (bChambers.length > 0) {
+                  for (const c of bChambers) {
+                    if (updatedEqIds.has(c.equipmentId)) {
+                      isDirty = true;
+                      break;
+                    }
+                  }
+                } else {
+                  for (const c of chambers) {
+                    if (updatedEqIds.has(c.id)) {
+                      isDirty = true;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              // 2. Check BOM dependencies
+              if (!isDirty && b.stepOrder === 1) {
+                const deps = bomMap[b.partNumberId] || [];
+                for (const dep of deps) {
+                  if (updatedPartIds.has(dep.childPartId)) {
+                    isDirty = true;
+                    break;
+                  }
+                }
+              }
+
+              // 3. Check previous step completions
+              if (!isDirty && b.stepOrder > 1) {
+                if (b.orderId === updatedOrderId && b.stepOrder - 1 === updatedStepOrder) {
+                  isDirty = true;
+                }
+              }
+
+              if (isDirty) {
+                cached.dirty = true;
+              }
+            }
+            
+            const idx = pendingBatches.findIndex(b => 
+              b.orderId === batch.orderId && b.stepId === batch.stepId && b.batchIndex === batch.batchIndex
+            );
+            if (idx >= 0) pendingBatches.splice(idx, 1);
+            
+            childReadyCache.clear();
           }
         }
-        
-        if (!selectedChamber) return null;
-        
-        if (selectedChamber.availableAt > machinesReadyAt) {
-          machinesReadyAt = selectedChamber.availableAt;
-        }
-        selectedUnits.push({ 
-          eqId: selectedChamber.eqId, 
-          unitIdx: selectedChamber.unitIdx, 
-          durationMinutes: selectedChamber.durationMinutes 
-        });
-        chamberDuration = selectedChamber.durationMinutes;
-      }
-      
-      if (selectedUnits.length === 0) return null;
-      
-      let effectiveDuration = step.durationMinutes;
-      if (step.chamberRequired && chamberDuration !== null) {
-        effectiveDuration = chamberDuration;
-      }
-      
-      const totalDuration = batchesNeeded * effectiveDuration;
-      const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts, workDays);
-      
-      // Chamber steps: must START during working hours but can run continuously to completion
-      // Non-chamber steps: must be fully completed within working hours
-      const actualEndTime = step.chamberRequired 
-        ? addMinutes(actualStartTime, totalDuration)  // Continuous time for chambers
-        : addWorkingMinutes(actualStartTime, totalDuration, shifts, workDays);  // Working time only
-      
-      return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits, chamberDuration };
-    }
-    
-    // Greedy scheduling loop - schedule batches until none remain
-    // This enables pipeline scheduling where subsequent step batches can start
-    // as soon as enough units have completed the previous step
-    while (pendingBatches.length > 0) {
-      // Find all batches that are ready to be scheduled
-      // A batch is ready if:
-      // 1. It's step 1 (no dependencies), OR
-      // 2. Enough units have completed the previous step to fill this batch
-      const readyBatches: PendingBatch[] = [];
-      
-      for (const batch of pendingBatches) {
-        const minTime = getMinStartTimeForBatch(batch);
-        // If minTime is in the far future, this batch isn't ready yet
-        if (minTime.getTime() < 8640000000000000) {
-          readyBatches.push(batch);
-        }
-      }
-      
-      if (readyBatches.length === 0) break; // No more batches can be scheduled
-      
-      // For each ready batch, calculate when it could start
-      const batchOptions: { batch: PendingBatch; slot: ReturnType<typeof findEarliestSlotForBatch>; minTime: Date }[] = [];
-      
-      for (const batch of readyBatches) {
-        const minStartTime = getMinStartTimeForBatch(batch);
-        const slot = findEarliestSlotForBatch(batch, minStartTime);
-        if (slot) {
-          batchOptions.push({ batch, slot, minTime: minStartTime });
-        }
-      }
-      
-      if (batchOptions.length === 0) break;
-      
-      // Sort by: earliest start time, then by priority (P1 = highest, lower number first), then by step order
-      batchOptions.sort((a, b) => {
-        const timeDiff = a.slot!.startTime.getTime() - b.slot!.startTime.getTime();
-        if (timeDiff !== 0) return timeDiff;
-        const priorityDiff = a.batch.orderPriority - b.batch.orderPriority; // lower number = higher priority
-        if (priorityDiff !== 0) return priorityDiff;
-        // Prefer earlier steps to maximize pipeline throughput
-        return a.batch.stepOrder - b.batch.stepOrder;
-      });
-      
-      // Schedule the best batch
-      const best = batchOptions[0];
-      const { batch, slot } = best;
-      
-      const usedEquipmentNames = slot!.selectedUnits.map(u => {
-        const eq = equipmentList.find(e => e.id === u.eqId);
-        return eq?.name || "Unknown";
-      }).join(", ");
 
-      // === DIAGNOSTIC LOGGING ===
-      const minTimeForLog = getMinStartTimeForBatch(batch);
-      const isChamberStep = batch.step.chamberRequired;
-      if (isChamberStep) {
-        const nonChamberEqIds = (batch.step.equipmentRequirements || [])
-          .filter((r: any) => !chamberIds.has(r.equipmentId))
-          .map((r: any) => {
-            const eq = equipmentList.find(e => e.id === r.equipmentId);
-            const avail = machineAvailability[r.equipmentId];
-            return `${eq?.name || r.equipmentId}[avail=${avail?.map(d => d.toISOString().slice(11,16)).join('|')}]`;
-          }).join(', ');
-        console.log(
-          `[SCHED] ${batch.partNumber} step${batch.stepOrder}(${batch.step.name||'?'}) b${batch.batchIndex}` +
-          ` | minStart=${minTimeForLog.toISOString().slice(5,16)}` +
-          ` | start=${slot!.startTime.toISOString().slice(5,16)}` +
-          ` | end=${slot!.endTime.toISOString().slice(5,16)}` +
-          ` | eq=[${usedEquipmentNames}]` +
-          ` | nonChamberEq: ${nonChamberEqIds || 'none'}`
-        );
+        return { tasksList, batchCompletions };
       }
-      // === END DIAGNOSTIC LOGGING ===
-      
-      // Create task ID that includes batch info for multi-batch steps
-      const taskId = batch.totalBatches > 1 
-        ? `wo-${batch.orderId}-step-${batch.stepId}-b${batch.batchIndex + 1}`
-        : `wo-${batch.orderId}-step-${batch.stepId}`;
-      
-      tasks.push({
-        id: taskId,
-        workOrderId: batch.orderId,
-        partNumber: batch.partNumber,
-        stepId: batch.stepId,
-        stepOrder: batch.stepOrder,
-        stepName: batch.step.name || undefined,
-        equipmentIds: slot!.selectedUnits.map(u => u.eqId),
-        equipmentNames: usedEquipmentNames,
-        startTime: formatISO(slot!.startTime),
-        endTime: formatISO(slot!.endTime),
-        type: "test_run",
-        progress: 0,
-        dependencies: [],
-        unitsCount: batch.unitsInBatch
-      });
-      
-      // Update machine availability and track chamber last part for changeover
-      for (const unit of slot!.selectedUnits) {
-        machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
-        
-        // If this is a chamber, track which part was last run on it
-        if (chamberIds.has(unit.eqId)) {
-          chamberLastPart[unit.eqId][unit.unitIdx] = batch.partNumberId;
-        }
-      }
-      
-      // Record this batch's completion time and unit count for pipeline tracking
-      batchCompletions[batch.orderId][batch.stepOrder].push({
-        endTime: slot!.endTime,
-        unitsCompleted: batch.unitsInBatch
-      });
-      
-      // Remove batch from pending
-      const idx = pendingBatches.findIndex(b => 
-        b.orderId === batch.orderId && 
-        b.stepId === batch.stepId && 
-        b.batchIndex === batch.batchIndex
-      );
-      if (idx >= 0) pendingBatches.splice(idx, 1);
-    }
 
-    // Second pass: Schedule remaining batches as shortage placeholders (ignoring BOM constraints)
-    while (pendingBatches.length > 0) {
-      const readyBatches: PendingBatch[] = [];
-      for (const batch of pendingBatches) {
-        const minTime = getMinStartTimeForBatch(batch, true);
-        if (minTime.getTime() < 8640000000000000) {
-          readyBatches.push(batch);
-        }
-      }
+      // --- SIMULATION RUNS ---
+      // Run 1: Unconstrained (ideal schedule)
+      const { tasksList: unconstrainedTasks } = runSimulation(true);
+      const unconstrainedStartTimes: Record<string, Date> = {};
       
-      if (readyBatches.length === 0) {
-        break; // Prevent infinite loop if something is unresolvable
-      }
-      
-      const batchOptions: { batch: PendingBatch; slot: ReturnType<typeof findEarliestSlotForBatch>; minTime: Date }[] = [];
-      for (const batch of readyBatches) {
-        const minStartTime = getMinStartTimeForBatch(batch, true);
-        const slot = findEarliestSlotForBatch(batch, minStartTime);
-        if (slot) {
-          batchOptions.push({ batch, slot, minTime: minStartTime });
-        }
-      }
-      
-      if (batchOptions.length === 0) {
-        break;
-      }
-      
-      batchOptions.sort((a, b) => {
-        const timeDiff = a.slot!.startTime.getTime() - b.slot!.startTime.getTime();
-        if (timeDiff !== 0) return timeDiff;
-        const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
-        if (priorityDiff !== 0) return priorityDiff;
-        return a.batch.stepOrder - b.batch.stepOrder;
-      });
-      
-      const best = batchOptions[0];
-      const { batch, slot } = best;
-      
-      const usedEquipmentNames = slot!.selectedUnits.map(u => {
-        const eq = equipmentList.find(e => e.id === u.eqId);
-        return eq?.name || "Unknown";
-      }).join(", ");
-      
-      const taskId = batch.totalBatches > 1 
-        ? `wo-${batch.orderId}-step-${batch.stepId}-b${batch.batchIndex + 1}-shortage`
-        : `wo-${batch.orderId}-step-${batch.stepId}-shortage`;
-        
-      tasks.push({
-        id: taskId,
-        workOrderId: batch.orderId,
-        partNumber: batch.partNumber,
-        stepId: batch.stepId,
-        stepOrder: batch.stepOrder,
-        stepName: batch.step.name || undefined,
-        equipmentIds: slot!.selectedUnits.map(u => u.eqId),
-        equipmentNames: usedEquipmentNames,
-        startTime: formatISO(slot!.startTime),
-        endTime: formatISO(slot!.endTime),
-        type: "shortage_placeholder",
-        progress: 0,
-        dependencies: [],
-        unitsCount: batch.unitsInBatch
-      });
-      
-      for (const unit of slot!.selectedUnits) {
-        machineAvailability[unit.eqId][unit.unitIdx] = slot!.endTime;
-        if (chamberIds.has(unit.eqId)) {
-          chamberLastPart[unit.eqId][unit.unitIdx] = batch.partNumberId;
-        }
-      }
-      
-      batchCompletions[batch.orderId][batch.stepOrder].push({
-        endTime: slot!.endTime,
-        unitsCompleted: batch.unitsInBatch
-      });
-      
-      const idx = pendingBatches.findIndex(b => 
-        b.orderId === batch.orderId && 
-        b.stepId === batch.stepId && 
-        b.batchIndex === batch.batchIndex
-      );
-      if (idx >= 0) pendingBatches.splice(idx, 1);
-    }
-
-    // Merge consecutive batches of the same work order and step into single timeline items
-    const mergedTasks: ScheduledTask[] = [];
-    
-    // Group tasks by work order, step, AND equipment used
-    // This ensures batches on different chambers are NOT merged together
-    const taskGroups = new Map<string, ScheduledTask[]>();
-    for (const task of tasks) {
-      const match = task.id.match(/^(wo-\d+-step-\d+)/);
-      if (match) {
-        const chamberEqIds = task.equipmentIds.filter(id => chamberIds.has(id)).sort().join(',');
-        const key = `${task.workOrderId}-${task.stepId}-eq${chamberEqIds}-${task.type}`;
-        if (!taskGroups.has(key)) {
-          taskGroups.set(key, []);
-        }
-        taskGroups.get(key)!.push(task);
-      } else {
-        mergedTasks.push(task);
-      }
-    }
-    
-    // Count how many equipment groups exist per base step (workOrderId-stepId)
-    const baseStepGroupCounts = new Map<string, number>();
-    for (const key of Array.from(taskGroups.keys())) {
-      const baseKey = key.replace(/-eq.*$/, '');
-      baseStepGroupCounts.set(baseKey, (baseStepGroupCounts.get(baseKey) || 0) + 1);
-    }
-    
-    // For each group, merge consecutive tasks
-    // Track segment counts per base step (not per equipment group) for unique IDs
-    const baseStepSegmentCounts = new Map<string, number>();
-    
-    Array.from(taskGroups.entries()).forEach(([key, groupTasks]) => {
-      const baseKey = key.replace(/-eq.*$/, '');
-      
-      groupTasks.sort((a: ScheduledTask, b: ScheduledTask) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-      
-      let currentMerged: ScheduledTask | null = null;
-      
-      for (const task of groupTasks) {
-        if (currentMerged === null) {
-          const count = (baseStepSegmentCounts.get(baseKey) || 0) + 1;
-          baseStepSegmentCounts.set(baseKey, count);
-          const newTask = { ...task };
-          const baseId = newTask.id.replace(/-b\d+$/, '');
-          newTask.id = count > 1 ? `${baseId}-s${count}` : baseId;
-          currentMerged = newTask;
+      for (const t of unconstrainedTasks) {
+        const bMatch = t.id.match(/^wo-(\d+)-step-(\d+)-b(\d+)/);
+        if (bMatch) {
+          const key = `${bMatch[1]}-${bMatch[2]}-${Number(bMatch[3]) - 1}`;
+          unconstrainedStartTimes[key] = new Date(t.startTime);
         } else {
-          const prevEnd = new Date(currentMerged.endTime).getTime();
-          const currStart = new Date(task.startTime).getTime();
-          
-          if (currStart <= prevEnd) {
-            currentMerged.unitsCount = (currentMerged.unitsCount || 0) + (task.unitsCount || 0);
-            const currEnd = new Date(task.endTime).getTime();
-            if (currEnd > prevEnd) {
-              currentMerged.endTime = task.endTime;
+          const sMatch = t.id.match(/^wo-(\d+)-step-(\d+)/);
+          if (sMatch) {
+            const key = `${sMatch[1]}-${sMatch[2]}-0`;
+            unconstrainedStartTimes[key] = new Date(t.startTime);
+          }
+        }
+      }
+
+      // Calculate optimal supply rates for subassemblies
+      // Two approaches combined:
+      // 1. For parent parts WITH scheduled tasks: use simulation timing for peak rate
+      // 2. For parent parts WITHOUT tasks (no test steps): use order demand / schedule span
+
+      // First, find the schedule span from unconstrained tasks
+      let unconstrainedEndTimeMs = workingStartTime.getTime();
+      for (const t of unconstrainedTasks) {
+        const endMs = new Date(t.endTime).getTime();
+        if (endMs > unconstrainedEndTimeMs) unconstrainedEndTimeMs = endMs;
+      }
+      const scheduleDurationMs = Math.max(unconstrainedEndTimeMs - workingStartTime.getTime(), 24 * 60 * 60 * 1000); // min 1 day
+      const scheduleDurationDays = scheduleDurationMs / (24 * 60 * 60 * 1000);
+
+      // Helper function to calculate maximum testing capacity of a part (units/day)
+      function getMaxTestCapacity(partId: number): number {
+        const part = partsMap.get(partId);
+        if (!part || !part.steps || part.steps.length === 0) return 0;
+        
+        let minStepThroughput = Infinity;
+        
+        for (const step of part.steps) {
+          if (step.chamberRequired) {
+            const partCompatibleChambers = compatibilityMap[partId] || [];
+            let totalChamberThroughput = 0;
+            
+            const chambersList = partCompatibleChambers.length > 0
+              ? partCompatibleChambers
+              : chambers.map(c => ({ equipmentId: c.id, durationMinutes: step.durationMinutes || 0 }));
+              
+            for (const cInfo of chambersList) {
+              const eq = equipmentList.find(e => e.id === cInfo.equipmentId);
+              if (!eq) continue;
+              const duration = cInfo.durationMinutes || step.durationMinutes || 1;
+              const unitCapacity = (1440 / duration) * step.batchSize;
+              totalChamberThroughput += unitCapacity * eq.quantity;
+            }
+            if (totalChamberThroughput > 0 && totalChamberThroughput < minStepThroughput) {
+              minStepThroughput = totalChamberThroughput;
             }
           } else {
-            mergedTasks.push(currentMerged);
-            const count = (baseStepSegmentCounts.get(baseKey) || 0) + 1;
-            baseStepSegmentCounts.set(baseKey, count);
-            const newTask = { ...task };
-            const baseId = newTask.id.replace(/-b\d+$/, '');
-            newTask.id = `${baseId}-s${count}`;
-            currentMerged = newTask;
+            const eqRequirements = (step.equipmentRequirements || []).filter((req: any) => !chamberIds.has(req.equipmentId));
+            let minEqThroughput = Infinity;
+            
+            // Non-chamber active fraction based on shifts and work days
+            const activeFraction = (shifts * 8 / 24) * (workDays / 7);
+            
+            if (eqRequirements.length === 0) {
+              const vibeId = vibeEquipmentId;
+              const eq = equipmentList.find(e => e.id === vibeId);
+              if (eq) {
+                const duration = step.durationMinutes || 1;
+                const capacity = (1440 * activeFraction / duration) * step.batchSize * eq.quantity;
+                if (capacity < minStepThroughput) {
+                  minStepThroughput = capacity;
+                }
+              }
+              continue;
+            }
+            
+            for (const req of eqRequirements) {
+              const eq = equipmentList.find(e => e.id === req.equipmentId);
+              if (!eq) continue;
+              const duration = req.durationMinutes || step.durationMinutes || 1;
+              const unitCapacity = (1440 * activeFraction / duration) * step.batchSize;
+              const totalEqCapacity = (unitCapacity * eq.quantity) / (req.quantityRequired || 1);
+              if (totalEqCapacity < minEqThroughput) {
+                minEqThroughput = totalEqCapacity;
+              }
+            }
+            if (minEqThroughput < minStepThroughput) {
+              minStepThroughput = minEqThroughput;
+            }
+          }
+        }
+        
+        return isFinite(minStepThroughput) ? minStepThroughput : 0;
+      }
+
+      function getMaxFeasibleThroughput(childPartId: number): number {
+        const subCapacity = getMaxTestCapacity(childPartId);
+        let totalParentCapacity = 0;
+        let hasParentDeps = false;
+        
+        for (const parentIdStr of Object.keys(bomMap)) {
+          const parentId = Number(parentIdStr);
+          const deps = bomMap[parentId] || [];
+          const dep = deps.find(d => d.childPartId === childPartId);
+          if (dep) {
+            hasParentDeps = true;
+            const parentCap = getMaxTestCapacity(parentId);
+            totalParentCapacity += parentCap * dep.quantityRequired;
+          }
+        }
+        
+        if (hasParentDeps && totalParentCapacity > 0) {
+          return Math.min(subCapacity, totalParentCapacity);
+        }
+        return subCapacity;
+      }
+
+      // Track which parent part IDs had simulation tasks (step 1)
+      const partsWithSimTasks = new Set<number>();
+      const subassemblyDemands: Record<number, { time: number; qty: number }[]> = {};
+      
+      for (const t of unconstrainedTasks) {
+        if (t.stepOrder !== 1) continue;
+        const orderPartId = allOrders.find(o => o.id === t.workOrderId)?.partNumberId;
+        if (!orderPartId) continue;
+        partsWithSimTasks.add(orderPartId);
+        const deps = bomMap[orderPartId] || [];
+        for (const dep of deps) {
+          const childPartId = dep.childPartId;
+          const qty = (t.unitsCount || 0) * dep.quantityRequired;
+          if (qty <= 0) continue;
+          if (!subassemblyDemands[childPartId]) subassemblyDemands[childPartId] = [];
+          subassemblyDemands[childPartId].push({
+            time: new Date(t.startTime).getTime(),
+            qty
+          });
+        }
+      }
+
+      const optimalSupplyRates: Record<number, number> = {};
+      
+      // Calculate rates from simulation-based demands (peak rate approach)
+      for (const childIdStr of Object.keys(subassemblyDemands)) {
+        const childId = Number(childIdStr);
+        const demands = subassemblyDemands[childId];
+        demands.sort((a, b) => a.time - b.time);
+        
+        let accumulated = 0;
+        let maxRate = 0;
+        const startTimeMs = workingStartTime.getTime();
+        
+        for (const d of demands) {
+          accumulated += d.qty;
+          const diffMs = d.time - startTimeMs;
+          const diffDays = Math.max(1 / 24, diffMs / (24 * 60 * 60 * 1000));
+          const rate = accumulated / diffDays;
+          if (rate > maxRate) maxRate = rate;
+        }
+        
+        const feasibleThroughput = getMaxFeasibleThroughput(childId);
+        if (feasibleThroughput > 0) {
+          optimalSupplyRates[childId] = Math.min(Math.ceil(maxRate), Math.ceil(feasibleThroughput));
+        } else {
+          optimalSupplyRates[childId] = Math.ceil(maxRate);
+        }
+      }
+
+      // Fallback: For parent parts that have BOM deps but NO simulation tasks (no test steps),
+      // compute rate = total demand / schedule duration
+      // First, aggregate total quantity per parent part that has no sim tasks
+      const noSimParentDemand: Record<number, { totalQty: number; earliestDue: number | null }> = {};
+      for (const order of orders) {
+        if (partsWithSimTasks.has(order.partNumberId)) continue;
+        const deps = bomMap[order.partNumberId] || [];
+        if (deps.length === 0) continue;
+        
+        if (!noSimParentDemand[order.partNumberId]) {
+          noSimParentDemand[order.partNumberId] = { totalQty: 0, earliestDue: null };
+        }
+        noSimParentDemand[order.partNumberId].totalQty += order.quantity;
+        if (order.dueDate) {
+          const dueMs = new Date(order.dueDate).getTime();
+          const existing = noSimParentDemand[order.partNumberId].earliestDue;
+          if (existing === null || dueMs < existing) {
+            noSimParentDemand[order.partNumberId].earliestDue = dueMs;
           }
         }
       }
       
-      if (currentMerged) {
-        mergedTasks.push(currentMerged);
-      }
-    });
-    
-    // Sort merged tasks by start time for consistent output
-    mergedTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
-    // Compute per-order projected completion (latest endTime across all tasks)
-    const orderCompletionMap: Record<number, Date> = {};
-    for (const task of mergedTasks) {
-      const end = new Date(task.endTime);
-      if (!orderCompletionMap[task.workOrderId] || end > orderCompletionMap[task.workOrderId]) {
-        orderCompletionMap[task.workOrderId] = end;
-      }
-    }
-
-    // Build due-date warnings for orders whose projected completion exceeds their due date
-    const dueDateWarnings: import("../shared/schema").DueDateWarning[] = [];
-    for (const order of orders) {
-      if (!order.dueDate) continue;
-      const projected = orderCompletionMap[order.id];
-      if (!projected) continue;
-      const due = new Date(order.dueDate);
-      if (projected > due) {
-        const daysLate = Math.ceil((projected.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-        const part = partsMap.get(order.partNumberId);
-        dueDateWarnings.push({
-          workOrderId: order.id,
-          workOrderNumber: order.workOrderNumber ?? null,
-          partNumber: part?.partNumber ?? "Unknown",
-          dueDate: formatISO(due),
-          projectedCompletion: formatISO(projected),
-          daysLate,
-        });
-      }
-    }
-
-    // Sort warnings by most days late first
-    dueDateWarnings.sort((a, b) => b.daysLate - a.daysLate);
-
-    // Chronological shortage impact calculation on mergedTasks
-    const orderPartMap = new Map<number, number>();
-    for (const o of allOrders) {
-      orderPartMap.set(o.id, o.partNumberId);
-    }
-
-    const runningConsumption: Record<number, number> = {};
-    const sortedMergedTasks = [...mergedTasks].sort((a, b) => 
-      new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-    );
-
-    for (const task of sortedMergedTasks) {
-      const partId = orderPartMap.get(task.workOrderId);
-      if (!partId) continue;
-
-      const deps = bomMap[partId] || [];
-      let isAffected = false;
-
-      for (const dep of deps) {
-        const childPartId = dep.childPartId;
-        const qtyNeeded = (task.unitsCount || 0) * dep.quantityRequired;
-        if (qtyNeeded === 0) continue;
-
-        const currentConsumed = runningConsumption[childPartId] || 0;
-        const newConsumed = currentConsumed + qtyNeeded;
-        runningConsumption[childPartId] = newConsumed;
-
-        const totalSupply = supplyByPartId[childPartId] || 0;
+      for (const parentPartIdStr of Object.keys(noSimParentDemand)) {
+        const parentPartId = Number(parentPartIdStr);
+        const { totalQty, earliestDue } = noSimParentDemand[parentPartId];
+        const deps = bomMap[parentPartId] || [];
         
-        // If we don't have enough supply to cover this task's consumption, it is affected!
-        if (newConsumed > totalSupply) {
-          isAffected = true;
+        let durationDays = scheduleDurationDays;
+        if (earliestDue !== null) {
+          const diffMs = earliestDue - workingStartTime.getTime();
+          if (diffMs > 0) {
+            durationDays = Math.max(1, diffMs / (24 * 60 * 60 * 1000));
+          }
+        }
+
+        for (const dep of deps) {
+          const childPartId = dep.childPartId;
+          const totalChildDemand = totalQty * dep.quantityRequired;
+          const rate = Math.ceil(totalChildDemand / durationDays);
+          const feasibleThroughput = getMaxFeasibleThroughput(childPartId);
+          const finalRate = feasibleThroughput > 0
+            ? Math.min(rate, Math.ceil(feasibleThroughput))
+            : rate;
+          optimalSupplyRates[childPartId] = Math.max(optimalSupplyRates[childPartId] || 0, finalRate);
         }
       }
 
-      if (isAffected) {
-        const ref = mergedTasks.find(mt => mt.id === task.id);
-        if (ref) {
-          ref.isShortageAffected = true;
+      // Run 2: Real run (respecting supply rules and tracking delays)
+      const { tasksList: realTasks } = runSimulation(false, unconstrainedStartTimes);
+
+      // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
+      const workOrderNumberMap = new Map<number, string | null>();
+      for (const order of allOrders) {
+        workOrderNumberMap.set(order.id, order.workOrderNumber);
+      }
+
+      // Helper to identify the main equipment unit for task grouping
+      const getEquipmentUnitKey = (task: ScheduledTask) => {
+        if (!task.equipmentIds || task.equipmentIds.length === 0) return "no-equipment";
+        const mainEq = task.equipmentIds.find(id => mainEquipmentIds.has(id));
+        if (mainEq !== undefined) {
+          const idx = task.equipmentIds.indexOf(mainEq);
+          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
+          return `${mainEq}_${unitIdx}`;
+        }
+        const units = task.equipmentIds.map((id, idx) => {
+          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
+          return `${id}_${unitIdx}`;
+        });
+        return units.sort().join(",");
+      };
+
+      // Group tasks by equipment unit key
+      const tasksByEquipmentUnit = new Map<string, ScheduledTask[]>();
+      for (const task of realTasks) {
+        const eqKey = getEquipmentUnitKey(task);
+        if (!tasksByEquipmentUnit.has(eqKey)) {
+          tasksByEquipmentUnit.set(eqKey, []);
+        }
+        tasksByEquipmentUnit.get(eqKey)!.push(task);
+      }
+
+      const mergedTasks: ScheduledTask[] = [];
+
+      for (const [eqKey, unitTasks] of tasksByEquipmentUnit.entries()) {
+        // Sort chronologically by start time
+        unitTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+        let currentMerged: ScheduledTask | null = null;
+        for (const task of unitTasks) {
+          if (currentMerged === null) {
+            const newTask = { ...task };
+            newTask.combinedOrders = [{
+              workOrderId: task.workOrderId,
+              workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+              quantity: task.unitsCount || 0
+            }];
+            currentMerged = newTask;
+          } else {
+            // Combine consecutive tasks of the same Part Number, Step ID, and Type on this unit
+            const canMerge = 
+              currentMerged.partNumber === task.partNumber &&
+              currentMerged.stepId === task.stepId &&
+              currentMerged.type === task.type;
+
+            if (canMerge) {
+              const prevEnd = new Date(currentMerged.endTime).getTime();
+              const currEnd = new Date(task.endTime).getTime();
+              if (currEnd > prevEnd) {
+                currentMerged.endTime = task.endTime;
+              }
+              currentMerged.unitsCount = (currentMerged.unitsCount || 0) + (task.unitsCount || 0);
+              if (task.isShortageAffected) {
+                currentMerged.isShortageAffected = true;
+              }
+              if (task.constrainingSubassemblyName) {
+                currentMerged.constrainingSubassemblyName = task.constrainingSubassemblyName;
+              }
+              
+              if (!currentMerged.combinedOrders) currentMerged.combinedOrders = [];
+              const existingOrder = currentMerged.combinedOrders.find(co => co.workOrderId === task.workOrderId);
+              if (existingOrder) {
+                existingOrder.quantity += task.unitsCount || 0;
+              } else {
+                currentMerged.combinedOrders.push({
+                  workOrderId: task.workOrderId,
+                  workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                  quantity: task.unitsCount || 0
+                });
+              }
+            } else {
+              mergedTasks.push(currentMerged);
+              const newTask = { ...task };
+              newTask.combinedOrders = [{
+                workOrderId: task.workOrderId,
+                workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                quantity: task.unitsCount || 0
+              }];
+              currentMerged = newTask;
+            }
+          }
+        }
+        if (currentMerged) {
+          mergedTasks.push(currentMerged);
         }
       }
+
+      // Generate unique IDs for each merged task to ensure the Gantt chart can render them as separate rows
+      const segmentCounter = new Map<string, number>();
+      for (const task of mergedTasks) {
+        const key = `${task.partNumber}-${task.stepId}`;
+        const count = (segmentCounter.get(key) || 0) + 1;
+        segmentCounter.set(key, count);
+        task.id = `merged-${task.partNumber}-${task.stepId}-s${count}`;
+      }
+      
+      mergedTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+      // Compute projected completion times
+      const orderCompletionMap: Record<number, Date> = {};
+      for (const task of mergedTasks) {
+        const end = new Date(task.endTime);
+        if (!orderCompletionMap[task.workOrderId] || end > orderCompletionMap[task.workOrderId]) {
+          orderCompletionMap[task.workOrderId] = end;
+        }
+      }
+
+      // Build due-date warnings
+      const dueDateWarnings: import("../shared/schema").DueDateWarning[] = [];
+      for (const order of orders) {
+        if (!order.dueDate) continue;
+        const projected = orderCompletionMap[order.id];
+        if (!projected) continue;
+        const due = new Date(order.dueDate);
+        if (projected > due) {
+          const daysLate = Math.ceil((projected.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+          const part = partsMap.get(order.partNumberId);
+          dueDateWarnings.push({
+            workOrderId: order.id,
+            workOrderNumber: order.workOrderNumber ?? null,
+            partNumber: part?.partNumber ?? "Unknown",
+            dueDate: formatISO(due),
+            projectedCompletion: formatISO(projected),
+            daysLate,
+          });
+        }
+      }
+      dueDateWarnings.sort((a, b) => b.daysLate - a.daysLate);
+
+      res.json({
+        tasks: mergedTasks,
+        equipmentUsage: {},
+        dueDateWarnings,
+        shortageWarnings,
+        optimalSupplyRates,
+        partSupplyRules: allSupplyRules,
+        subassemblyDemandTotals: demandByChildId,
+      });
+    } catch (err: any) {
+      console.error("Scheduler calculate endpoint error:", err);
+      res.status(500).json({ message: err.message || "Internal server error" });
     }
-
-    res.json({
-      tasks: mergedTasks,
-      equipmentUsage: {},
-      dueDateWarnings,
-      shortageWarnings,
-    });
   });
 
   return httpServer;
