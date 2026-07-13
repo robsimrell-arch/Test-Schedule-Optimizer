@@ -28,6 +28,24 @@ function skipToWorkingDay(date: Date, workDays: 5 | 6 | 7): Date {
   return result;
 }
 
+// Helper: Count working days between two dates inclusive
+function countWorkingDaysBetween(start: Date, end: Date, workDays: 5 | 6 | 7): number {
+  let count = 0;
+  let curr = new Date(start.getTime());
+  curr.setHours(12, 0, 0, 0); // avoid DST issues
+  const endMid = new Date(end.getTime());
+  endMid.setHours(12, 0, 0, 0);
+  
+  while (curr.getTime() <= endMid.getTime()) {
+    if (isWorkingDay(curr, workDays)) {
+      count++;
+    }
+    curr.setDate(curr.getDate() + 1);
+  }
+  return Math.max(1, count);
+}
+
+
 // Helper: Check if time is within shift schedule working hours
 function isWorkingTime(date: Date, shifts: 1 | 2 | 3, workDays: 5 | 6 | 7): boolean {
   const day = date.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
@@ -1432,8 +1450,7 @@ export async function registerRoutes(
         const endMs = new Date(t.endTime).getTime();
         if (endMs > unconstrainedEndTimeMs) unconstrainedEndTimeMs = endMs;
       }
-      const scheduleDurationMs = Math.max(unconstrainedEndTimeMs - workingStartTime.getTime(), 24 * 60 * 60 * 1000); // min 1 day
-      const scheduleDurationDays = scheduleDurationMs / (24 * 60 * 60 * 1000);
+      const scheduleDurationDays = countWorkingDaysBetween(workingStartTime, new Date(unconstrainedEndTimeMs), workDays);
 
       // Helper function to calculate maximum testing capacity of a part (units/day)
       function getMaxTestCapacity(partId: number): number {
@@ -1546,30 +1563,13 @@ export async function registerRoutes(
 
       const optimalSupplyRates: Record<number, number> = {};
       
-      // Calculate rates from simulation-based demands (peak rate approach)
+      // Calculate rates from simulation-based demands (schedule-dictated average rate)
       for (const childIdStr of Object.keys(subassemblyDemands)) {
         const childId = Number(childIdStr);
         const demands = subassemblyDemands[childId];
-        demands.sort((a, b) => a.time - b.time);
-        
-        let accumulated = 0;
-        let maxRate = 0;
-        const startTimeMs = workingStartTime.getTime();
-        
-        for (const d of demands) {
-          accumulated += d.qty;
-          const diffMs = d.time - startTimeMs;
-          const diffDays = Math.max(1 / 24, diffMs / (24 * 60 * 60 * 1000));
-          const rate = accumulated / diffDays;
-          if (rate > maxRate) maxRate = rate;
-        }
-        
-        const feasibleThroughput = getMaxFeasibleThroughput(childId);
-        if (feasibleThroughput > 0) {
-          optimalSupplyRates[childId] = Math.min(Math.ceil(maxRate), Math.ceil(feasibleThroughput));
-        } else {
-          optimalSupplyRates[childId] = Math.ceil(maxRate);
-        }
+        const totalDemand = demands.reduce((sum, d) => sum + d.qty, 0);
+        const averageRate = totalDemand / scheduleDurationDays;
+        optimalSupplyRates[childId] = Math.ceil(averageRate);
       }
 
       // Fallback: For parent parts that have BOM deps but NO simulation tasks (no test steps),
@@ -1601,21 +1601,14 @@ export async function registerRoutes(
         
         let durationDays = scheduleDurationDays;
         if (earliestDue !== null) {
-          const diffMs = earliestDue - workingStartTime.getTime();
-          if (diffMs > 0) {
-            durationDays = Math.max(1, diffMs / (24 * 60 * 60 * 1000));
-          }
+          durationDays = countWorkingDaysBetween(workingStartTime, new Date(earliestDue), workDays);
         }
 
         for (const dep of deps) {
           const childPartId = dep.childPartId;
           const totalChildDemand = totalQty * dep.quantityRequired;
           const rate = Math.ceil(totalChildDemand / durationDays);
-          const feasibleThroughput = getMaxFeasibleThroughput(childPartId);
-          const finalRate = feasibleThroughput > 0
-            ? Math.min(rate, Math.ceil(feasibleThroughput))
-            : rate;
-          optimalSupplyRates[childPartId] = Math.max(optimalSupplyRates[childPartId] || 0, finalRate);
+          optimalSupplyRates[childPartId] = Math.max(optimalSupplyRates[childPartId] || 0, rate);
         }
       }
 
