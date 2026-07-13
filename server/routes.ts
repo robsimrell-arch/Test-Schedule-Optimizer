@@ -1562,13 +1562,23 @@ export async function registerRoutes(
       }
 
       const optimalSupplyRates: Record<number, number> = {};
+
+      // Run Pass 2 (initial) to find the actual Gantt chart schedule completion date
+      const { tasksList: initialRealTasks } = runSimulation(false, unconstrainedStartTimes);
       
-      // Calculate rates from simulation-based demands (schedule-dictated average rate)
+      let realEndTimeMs = workingStartTime.getTime();
+      for (const t of initialRealTasks) {
+        const endMs = new Date(t.endTime).getTime();
+        if (endMs > realEndTimeMs) realEndTimeMs = endMs;
+      }
+      const actualDurationDays = countWorkingDaysBetween(workingStartTime, new Date(realEndTimeMs), workDays);
+      
+      // Calculate rates from simulation-based demands (actual schedule-dictated average rate)
       for (const childIdStr of Object.keys(subassemblyDemands)) {
         const childId = Number(childIdStr);
         const demands = subassemblyDemands[childId];
         const totalDemand = demands.reduce((sum, d) => sum + d.qty, 0);
-        const averageRate = totalDemand / scheduleDurationDays;
+        const averageRate = totalDemand / actualDurationDays;
         optimalSupplyRates[childId] = Math.ceil(averageRate);
       }
 
@@ -1599,7 +1609,7 @@ export async function registerRoutes(
         const { totalQty, earliestDue } = noSimParentDemand[parentPartId];
         const deps = bomMap[parentPartId] || [];
         
-        let durationDays = scheduleDurationDays;
+        let durationDays = actualDurationDays;
         if (earliestDue !== null) {
           durationDays = countWorkingDaysBetween(workingStartTime, new Date(earliestDue), workDays);
         }
@@ -1612,7 +1622,7 @@ export async function registerRoutes(
         }
       }
 
-      // Run 2: Real run (respecting supply rules and tracking delays)
+      // Run Pass 2 (final) to compute isShortageAffected flag using newly calculated optimalSupplyRates
       const { tasksList: realTasks } = runSimulation(false, unconstrainedStartTimes);
 
       // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
