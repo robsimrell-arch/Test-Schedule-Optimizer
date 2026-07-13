@@ -367,7 +367,8 @@ export default function Dashboard() {
         <div>End: {fmtFactoryTime(task.end)}</div>
         {isAffected && (
           <div className="mt-2 text-xs font-semibold text-rose-600 bg-rose-50 dark:bg-rose-950/20 px-2 py-1 rounded border border-rose-200 dark:border-rose-800">
-            ⚠️ Delayed due to subassembly supply constraints{originalTask?.constrainingSubassemblyName ? ` (${originalTask.constrainingSubassemblyName})` : ''}.
+            <div>⚠️ Delayed due to subassembly supply constraints{originalTask?.constrainingSubassemblyName ? ` (${originalTask.constrainingSubassemblyName})` : ''}.</div>
+            <div className="mt-1 text-rose-700 font-normal">Adjusted due to shortage: {originalTask?.unitsCount || 0} units</div>
           </div>
         )}
         {originalTask?.combinedOrders && originalTask.combinedOrders.length > 0 && (
