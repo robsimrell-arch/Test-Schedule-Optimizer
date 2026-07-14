@@ -1930,9 +1930,9 @@ export async function registerRoutes(
       // Set the final optimal supply rates
       Object.assign(optimalSupplyRates, solvedRates);
 
-      // Run final pass with ignoreRateLimit=true for the Gantt chart (unconstrained optimal schedule)
+      // Run final pass with ignoreRateLimit=false for the Gantt chart (constrained by actual supply rules)
       rawSupplyCache.clear();
-      const { tasksList: finalRealTasks } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs, true);
+      const { tasksList: finalRealTasks } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs, false);
       const mergedTasks = getMergedTasks(finalRealTasks);
 
       // Generate unique IDs for each merged task to ensure the Gantt chart can render them as separate rows
