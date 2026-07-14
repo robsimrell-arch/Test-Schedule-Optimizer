@@ -1632,6 +1632,103 @@ export async function registerRoutes(
         }
       }
 
+      // Helper function to calculate optimal supply rates using the Cumulative Bottleneck Method.
+      // This calculates the minimum flat supply rate required to ensure that cumulative supply is always
+      // greater than or equal to cumulative demand for all scheduled tasks chronologically.
+      function calculateOptimalSupplyRates(candidateTasks: ScheduledTask[]): { rates: Record<number, number>; sum: number } {
+        const rates: Record<number, number> = {};
+        
+        // Group demand events by partId based on candidate tasks
+        const candidateDemands: Record<number, { time: number; qty: number }[]> = {};
+        for (const t of candidateTasks) {
+          const orderPartId = allOrders.find(o => o.id === t.workOrderId)?.partNumberId;
+          if (!orderPartId) continue;
+
+          // 1. Raw part demand for the first step of this work order (requires raw parts of this parent part)
+          if (t.stepOrder === 1) {
+            const qty = t.unitsCount || 0;
+            if (qty > 0) {
+              if (!candidateDemands[orderPartId]) candidateDemands[orderPartId] = [];
+              candidateDemands[orderPartId].push({
+                time: new Date(t.startTime).getTime(),
+                qty
+              });
+            }
+          }
+
+          // 2. Child subassembly demands (BOM) needed for the first step of this parent order
+          if (t.stepOrder === 1) {
+            const deps = bomMap[orderPartId] || [];
+            for (const dep of deps) {
+              const childPartId = dep.childPartId;
+              const qty = (t.unitsCount || 0) * dep.quantityRequired;
+              if (qty <= 0) continue;
+              if (!candidateDemands[childPartId]) candidateDemands[childPartId] = [];
+              candidateDemands[childPartId].push({
+                time: new Date(t.startTime).getTime(),
+                qty
+              });
+            }
+          }
+        }
+        
+        // Compute rates for each part using cumulative demand check
+        for (const childIdStr of Object.keys(candidateDemands)) {
+          const childId = Number(childIdStr);
+          const demands = candidateDemands[childId];
+          
+          // Sort chronologically by start time
+          demands.sort((a, b) => a.time - b.time);
+          
+          let maxRequiredRate = 0;
+          let cumulativeQty = 0;
+          for (const demand of demands) {
+            cumulativeQty += demand.qty;
+            const days = countWorkingDaysBetween(workingStartTime, new Date(demand.time), workDays);
+            const rateForEvent = cumulativeQty / Math.max(1, days);
+            if (rateForEvent > maxRequiredRate) {
+              maxRequiredRate = rateForEvent;
+            }
+          }
+          rates[childId] = Math.ceil(maxRequiredRate);
+        }
+        
+        // Fallback for parent parts with no sim tasks
+        for (const parentPartIdStr of Object.keys(noSimParentDemand)) {
+          const parentPartId = Number(parentPartIdStr);
+          const { totalQty, earliestDue } = noSimParentDemand[parentPartId];
+          const deps = bomMap[parentPartId] || [];
+          
+          // Find max end time of candidate tasks to determine project duration fallback
+          let maxEndMs = workingStartTime.getTime();
+          for (const t of candidateTasks) {
+            const endMs = new Date(t.endTime).getTime();
+            if (endMs > maxEndMs) maxEndMs = endMs;
+          }
+          const fallbackDurationDays = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
+          
+          let durationDays = fallbackDurationDays;
+          if (earliestDue !== null) {
+            durationDays = countWorkingDaysBetween(workingStartTime, new Date(earliestDue), workDays);
+          }
+
+          for (const dep of deps) {
+            const childPartId = dep.childPartId;
+            const totalChildDemand = totalQty * dep.quantityRequired;
+            const rate = Math.ceil(totalChildDemand / Math.max(1, durationDays));
+            rates[childPartId] = Math.max(rates[childPartId] || 0, rate);
+          }
+        }
+        
+        // Recalculate sum of final rates
+        let finalSum = 0;
+        for (const r of Object.values(rates)) {
+          finalSum += r;
+        }
+        
+        return { rates, sum: finalSum };
+      }
+
       // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
       const optimalSupplyRates: Record<number, number> = {};
       const workOrderNumberMap = new Map<number, string | null>();
@@ -1760,34 +1857,8 @@ export async function registerRoutes(
         
         const workingDays = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
         
-        // Calculate candidate optimal supply rates to minimize vendor/pre-production pressure
-        let candidateSumRates = 0;
-        for (const childIdStr of Object.keys(subassemblyDemands)) {
-          const childId = Number(childIdStr);
-          const demands = subassemblyDemands[childId];
-          const totalDemand = demands.reduce((sum, d) => sum + d.qty, 0);
-          const averageRate = totalDemand / workingDays;
-          candidateSumRates += Math.ceil(averageRate);
-        }
-        
-        // Fallback for parent parts with no sim tasks
-        for (const parentPartIdStr of Object.keys(noSimParentDemand)) {
-          const parentPartId = Number(parentPartIdStr);
-          const { totalQty, earliestDue } = noSimParentDemand[parentPartId];
-          const deps = bomMap[parentPartId] || [];
-          
-          let durationDays = workingDays;
-          if (earliestDue !== null) {
-            durationDays = countWorkingDaysBetween(workingStartTime, new Date(earliestDue), workDays);
-          }
-
-          for (const dep of deps) {
-            const childPartId = dep.childPartId;
-            const totalChildDemand = totalQty * dep.quantityRequired;
-            const rate = Math.ceil(totalChildDemand / durationDays);
-            candidateSumRates += rate;
-          }
-        }
+        // Calculate candidate optimal supply rates using the Cumulative Bottleneck Method
+        const { rates: candidateRates, sum: candidateSumRates } = calculateOptimalSupplyRates(tasksList);
 
         // Objective score: Completion days has high priority weight, followed by task count, followed by supply rates
         const score = workingDays * 1000 + merged.length * 10 + candidateSumRates;
@@ -1802,38 +1873,14 @@ export async function registerRoutes(
         }
       }
 
-      const actualDurationDays = bestCandidate.workingDays;
-      
-      // Calculate rates from simulation-based demands (actual schedule-dictated average rate)
-      for (const childIdStr of Object.keys(subassemblyDemands)) {
-        const childId = Number(childIdStr);
-        const demands = subassemblyDemands[childId];
-        const totalDemand = demands.reduce((sum, d) => sum + d.qty, 0);
-        const averageRate = totalDemand / actualDurationDays;
-        optimalSupplyRates[childId] = Math.ceil(averageRate);
-      }
-
-      for (const parentPartIdStr of Object.keys(noSimParentDemand)) {
-        const parentPartId = Number(parentPartIdStr);
-        const { totalQty, earliestDue } = noSimParentDemand[parentPartId];
-        const deps = bomMap[parentPartId] || [];
-        
-        let durationDays = actualDurationDays;
-        if (earliestDue !== null) {
-          durationDays = countWorkingDaysBetween(workingStartTime, new Date(earliestDue), workDays);
-        }
-
-        for (const dep of deps) {
-          const childPartId = dep.childPartId;
-          const totalChildDemand = totalQty * dep.quantityRequired;
-          const rate = Math.ceil(totalChildDemand / durationDays);
-          optimalSupplyRates[childPartId] = Math.max(optimalSupplyRates[childPartId] || 0, rate);
-        }
-      }
-
       // Run Pass 2 (final) to compute isShortageAffected flag using newly calculated optimalSupplyRates
       // and using the optimal rule and grouping window found by the solver
       const { tasksList: finalRealTasks } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs, true);
+
+      // Calculate final optimal supply rates using the chosen best candidate's simulation tasks
+      const { rates: finalRates } = calculateOptimalSupplyRates(finalRealTasks);
+      Object.assign(optimalSupplyRates, finalRates);
+
       const mergedTasks = getMergedTasks(finalRealTasks);
 
       // Generate unique IDs for each merged task to ensure the Gantt chart can render them as separate rows
