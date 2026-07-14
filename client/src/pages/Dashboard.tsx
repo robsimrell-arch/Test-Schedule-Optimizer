@@ -45,7 +45,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useParts, useAllPartDependencies, useSavePartSupplyRule } from "@/hooks/use-manufacturing";
+import { useParts, useAllPartDependencies, useSavePartSupplyRule, useWorkOrders } from "@/hooks/use-manufacturing";
 
 export default function Dashboard() {
   const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(() => {
@@ -72,6 +72,7 @@ export default function Dashboard() {
 
   const { data: parts = [] } = useParts();
   const { data: dependencies = [] } = useAllPartDependencies();
+  const { data: workOrders = [] } = useWorkOrders();
   const saveSupplyRule = useSavePartSupplyRule();
 
   useEffect(() => {
@@ -454,7 +455,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <Card className="bg-gradient-to-br from-blue-50 to-white dark:from-slate-900 dark:to-slate-950 border-blue-100 dark:border-slate-800">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -489,6 +490,76 @@ export default function Dashboard() {
                       </p>
                     );
                   })()}
+                </CardContent>
+              </Card>
+
+              <Card className="flex flex-col justify-between">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+                    <span>Work Order Estimates</span>
+                    <Clock className="w-4 h-4 text-primary" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 min-h-0">
+                  <div className="max-h-[140px] overflow-y-auto pr-1 space-y-3">
+                    {workOrders.length === 0 ? (
+                      <div className="text-xs text-muted-foreground italic text-center py-4">No work orders.</div>
+                    ) : (
+                      (() => {
+                        const getWorkOrderEstCompletion = (woId: number) => {
+                          if (!schedule?.tasks) return null;
+                          const woTasks = schedule.tasks.filter((t: any) => 
+                            t.workOrderId === woId || 
+                            (t.combinedOrders && t.combinedOrders.some((co: any) => co.workOrderId === woId))
+                          );
+                          if (woTasks.length === 0) return null;
+                          const maxTime = Math.max(...woTasks.map((t: any) => toFactoryLocal(t.endTime).getTime()));
+                          return new Date(maxTime);
+                        };
+
+                        return workOrders.map((wo: any) => {
+                          const estCompletion = getWorkOrderEstCompletion(wo.id);
+                          const isLate = wo.dueDate && estCompletion && estCompletion.getTime() > toFactoryLocal(wo.dueDate).getTime();
+                          
+                          let statusBadge = <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4">Unscheduled</Badge>;
+                          if (estCompletion) {
+                            if (wo.dueDate) {
+                              if (isLate) {
+                                const diffMs = estCompletion.getTime() - toFactoryLocal(wo.dueDate).getTime();
+                                const daysLate = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                                statusBadge = <Badge variant="destructive" className="text-[10px] py-0 px-1.5 h-4">{daysLate}d late</Badge>;
+                              } else {
+                                statusBadge = <Badge className="text-[10px] py-0 px-1.5 h-4 bg-emerald-100 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">On Time</Badge>;
+                              }
+                            } else {
+                              statusBadge = <Badge variant="default" className="text-[10px] py-0 px-1.5 h-4 bg-blue-100 hover:bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400">Scheduled</Badge>;
+                            }
+                          }
+
+                          return (
+                            <div key={wo.id} className="flex items-center justify-between border-b border-border/40 pb-2 last:border-0 last:pb-0 text-sm">
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-semibold truncate text-foreground text-xs">
+                                  {wo.workOrderNumber ?? `WO-${String(wo.id).padStart(4, "0")}`}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground truncate max-w-[130px]">
+                                  {wo.partNumber?.partNumber ?? "Unknown"}
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-end gap-0.5 shrink-0">
+                                {estCompletion && (
+                                  <span className="text-[10px] font-semibold text-foreground">
+                                    {estCompletion.toLocaleDateString()}
+                                  </span>
+                                )}
+                                {statusBadge}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </div>
