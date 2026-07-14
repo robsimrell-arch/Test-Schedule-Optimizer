@@ -814,7 +814,7 @@ export async function registerRoutes(
       const childReadyCache = new Map<string, Date>();
 
       // Helper to find when raw incoming subassemblies are supplied from vendor/pre-production
-      function _getRawPartSupplyTime(partId: number, unitsNeeded: number): Date {
+      function _getRawPartSupplyTime(partId: number, unitsNeeded: number, ignoreRateLimit = false): Date {
         if (unitsNeeded <= 0) return new Date(workingStartTime);
         
         const rule = supplyRulesMap.get(partId);
@@ -823,7 +823,7 @@ export async function registerRoutes(
         }
         
         const initialEvents: { time: number; qty: number }[] = [];
-        const expectedRate = rule.expectedSupplyRate || 0;
+        const expectedRate = ignoreRateLimit ? Infinity : (rule.expectedSupplyRate || 0);
         
         if (rule.fixedSupplies) {
           try {
@@ -845,11 +845,11 @@ export async function registerRoutes(
         return getSupplyTimeFromEventsAndRate(expectedRate, initialEvents, unitsNeeded, workingStartTime, shifts, workDays, startHour);
       }
 
-      function getRawPartSupplyTime(partId: number, unitsNeeded: number): Date {
-        const cacheKey = `${partId}-${unitsNeeded}`;
+      function getRawPartSupplyTime(partId: number, unitsNeeded: number, ignoreRateLimit = false): Date {
+        const cacheKey = `${partId}-${unitsNeeded}-${ignoreRateLimit}`;
         const cached = rawSupplyCache.get(cacheKey);
         if (cached) return cached;
-        const res = _getRawPartSupplyTime(partId, unitsNeeded);
+        const res = _getRawPartSupplyTime(partId, unitsNeeded, ignoreRateLimit);
         rawSupplyCache.set(cacheKey, res);
         return res;
       }
@@ -924,7 +924,8 @@ export async function registerRoutes(
         ignoreBOM: boolean, 
         unconstrainedStartTimes?: Record<string, Date>,
         sortingRule: 'priority' | 'edd' | 'spt' = 'priority',
-        vibeGroupingWindowMs: number = 28800000
+        vibeGroupingWindowMs: number = 28800000,
+        ignoreRateLimit = false
       ) {
         const machineAvailability: Record<number, Date[]> = {};
         equipmentList.forEach(eq => {
@@ -1028,7 +1029,7 @@ export async function registerRoutes(
             let constrainingChildPartId: number | null = null;
             
             // Constrain by raw part supply if this part has a supply rule
-            const rawSupplyTime = getRawPartSupplyTime(batch.partNumberId, (batch.batchIndex * batch.step.batchSize) + batch.unitsInBatch);
+            const rawSupplyTime = getRawPartSupplyTime(batch.partNumberId, (batch.batchIndex * batch.step.batchSize) + batch.unitsInBatch, ignoreRateLimit);
             if (rawSupplyTime.getTime() === 8640000000000000) {
               return { time: new Date(8640000000000000), constrainingChildPartId: batch.partNumberId };
             }
@@ -1325,7 +1326,7 @@ export async function registerRoutes(
                   if (expectedRate < optimalRate) {
                     if (constrainingChildPartId === batch.partNumberId) {
                       const parentUnitsCumulative = batch.batchIndex * batch.step.batchSize + batch.unitsInBatch;
-                      const rawSupplyTime = getRawPartSupplyTime(constrainingChildPartId, parentUnitsCumulative);
+                      const rawSupplyTime = getRawPartSupplyTime(constrainingChildPartId, parentUnitsCumulative, ignoreRateLimit);
                       if (rawSupplyTime.getTime() > uStart.getTime()) {
                         isShortageAffected = true;
                       }
@@ -1334,7 +1335,7 @@ export async function registerRoutes(
                       if (dep) {
                         const neededFromThisBatch = batch.unitsInBatch * dep.quantityRequired;
                         const childUnitsNeeded = (globalConsumed[dep.childPartId] || 0) + neededFromThisBatch;
-                        const rawSupplyTime = getRawPartSupplyTime(constrainingChildPartId, childUnitsNeeded);
+                        const rawSupplyTime = getRawPartSupplyTime(constrainingChildPartId, childUnitsNeeded, ignoreRateLimit);
                         if (rawSupplyTime.getTime() > uStart.getTime()) {
                           isShortageAffected = true;
                         }
@@ -1610,6 +1611,27 @@ export async function registerRoutes(
         }
       }
 
+      // Fallback: For parent parts that have BOM deps but NO simulation tasks (no test steps),
+      // aggregate total quantity per parent part that has no sim tasks
+      const noSimParentDemand: Record<number, { totalQty: number; earliestDue: number | null }> = {};
+      for (const order of orders) {
+        if (partsWithSimTasks.has(order.partNumberId)) continue;
+        const deps = bomMap[order.partNumberId] || [];
+        if (deps.length === 0) continue;
+        
+        if (!noSimParentDemand[order.partNumberId]) {
+          noSimParentDemand[order.partNumberId] = { totalQty: 0, earliestDue: null };
+        }
+        noSimParentDemand[order.partNumberId].totalQty += order.quantity;
+        if (order.dueDate) {
+          const dueMs = new Date(order.dueDate).getTime();
+          const existing = noSimParentDemand[order.partNumberId].earliestDue;
+          if (existing === null || dueMs < existing) {
+            noSimParentDemand[order.partNumberId].earliestDue = dueMs;
+          }
+        }
+      }
+
       // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
       const optimalSupplyRates: Record<number, number> = {};
       const workOrderNumberMap = new Map<number, string | null>();
@@ -1727,7 +1749,7 @@ export async function registerRoutes(
       let minScore = Infinity;
 
       for (const cand of candidates) {
-        const { tasksList } = runSimulation(false, unconstrainedStartTimes, cand.rule, cand.windowMs);
+        const { tasksList } = runSimulation(false, unconstrainedStartTimes, cand.rule, cand.windowMs, true);
         const merged = getMergedTasks(tasksList);
         
         let maxEndMs = workingStartTime.getTime();
@@ -1737,8 +1759,38 @@ export async function registerRoutes(
         }
         
         const workingDays = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
-        // Objective score: Completion days has high priority weight, followed by task count (setup overhead)
-        const score = workingDays * 1000 + merged.length;
+        
+        // Calculate candidate optimal supply rates to minimize vendor/pre-production pressure
+        let candidateSumRates = 0;
+        for (const childIdStr of Object.keys(subassemblyDemands)) {
+          const childId = Number(childIdStr);
+          const demands = subassemblyDemands[childId];
+          const totalDemand = demands.reduce((sum, d) => sum + d.qty, 0);
+          const averageRate = totalDemand / workingDays;
+          candidateSumRates += Math.ceil(averageRate);
+        }
+        
+        // Fallback for parent parts with no sim tasks
+        for (const parentPartIdStr of Object.keys(noSimParentDemand)) {
+          const parentPartId = Number(parentPartIdStr);
+          const { totalQty, earliestDue } = noSimParentDemand[parentPartId];
+          const deps = bomMap[parentPartId] || [];
+          
+          let durationDays = workingDays;
+          if (earliestDue !== null) {
+            durationDays = countWorkingDaysBetween(workingStartTime, new Date(earliestDue), workDays);
+          }
+
+          for (const dep of deps) {
+            const childPartId = dep.childPartId;
+            const totalChildDemand = totalQty * dep.quantityRequired;
+            const rate = Math.ceil(totalChildDemand / durationDays);
+            candidateSumRates += rate;
+          }
+        }
+
+        // Objective score: Completion days has high priority weight, followed by task count, followed by supply rates
+        const score = workingDays * 1000 + merged.length * 10 + candidateSumRates;
         
         if (score < minScore) {
           minScore = score;
@@ -1761,27 +1813,6 @@ export async function registerRoutes(
         optimalSupplyRates[childId] = Math.ceil(averageRate);
       }
 
-      // Fallback: For parent parts that have BOM deps but NO simulation tasks (no test steps),
-      // compute rate = total demand / schedule duration
-      const noSimParentDemand: Record<number, { totalQty: number; earliestDue: number | null }> = {};
-      for (const order of orders) {
-        if (partsWithSimTasks.has(order.partNumberId)) continue;
-        const deps = bomMap[order.partNumberId] || [];
-        if (deps.length === 0) continue;
-        
-        if (!noSimParentDemand[order.partNumberId]) {
-          noSimParentDemand[order.partNumberId] = { totalQty: 0, earliestDue: null };
-        }
-        noSimParentDemand[order.partNumberId].totalQty += order.quantity;
-        if (order.dueDate) {
-          const dueMs = new Date(order.dueDate).getTime();
-          const existing = noSimParentDemand[order.partNumberId].earliestDue;
-          if (existing === null || dueMs < existing) {
-            noSimParentDemand[order.partNumberId].earliestDue = dueMs;
-          }
-        }
-      }
-      
       for (const parentPartIdStr of Object.keys(noSimParentDemand)) {
         const parentPartId = Number(parentPartIdStr);
         const { totalQty, earliestDue } = noSimParentDemand[parentPartId];
@@ -1802,7 +1833,7 @@ export async function registerRoutes(
 
       // Run Pass 2 (final) to compute isShortageAffected flag using newly calculated optimalSupplyRates
       // and using the optimal rule and grouping window found by the solver
-      const { tasksList: finalRealTasks } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs);
+      const { tasksList: finalRealTasks } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs, true);
       const mergedTasks = getMergedTasks(finalRealTasks);
 
       // Generate unique IDs for each merged task to ensure the Gantt chart can render them as separate rows
