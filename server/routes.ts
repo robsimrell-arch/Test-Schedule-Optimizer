@@ -920,7 +920,12 @@ export async function registerRoutes(
       }
 
       // Helper function to simulate scheduling
-      function runSimulation(ignoreBOM: boolean, unconstrainedStartTimes?: Record<string, Date>) {
+      function runSimulation(
+        ignoreBOM: boolean, 
+        unconstrainedStartTimes?: Record<string, Date>,
+        sortingRule: 'priority' | 'edd' | 'spt' = 'priority',
+        vibeGroupingWindowMs: number = 28800000
+      ) {
         const machineAvailability: Record<number, Date[]> = {};
         equipmentList.forEach(eq => {
           machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
@@ -937,6 +942,8 @@ export async function registerRoutes(
         interface PendingBatch {
           orderId: number;
           orderPriority: number;
+          dueDateMs: number;
+          processingTimeMinutes: number;
           partNumberId: number;
           partNumber: string;
           stepId: number;
@@ -990,11 +997,14 @@ export async function registerRoutes(
             const batchSize = step.batchSize;
             const totalBatches = Math.ceil(remainingQtyToProcess / batchSize);
             
+            const durationMinutes = step.durationMinutes || (step.equipmentRequirements?.[0]?.durationMinutes || 30);
             for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
               const unitsInThisBatch = Math.min(batchSize, remainingQtyToProcess - (batchIdx * batchSize));
               pendingBatches.push({
                 orderId: order.id,
                 orderPriority: order.priority ?? 0,
+                dueDateMs: order.dueDate ? new Date(order.dueDate).getTime() : Infinity,
+                processingTimeMinutes: durationMinutes,
                 partNumberId: order.partNumberId,
                 partNumber: part.partNumber,
                 stepId: step.id,
@@ -1247,8 +1257,8 @@ export async function registerRoutes(
                 const baseTimeMs = cached.slot.startTime.getTime();
                 let biasedTimeMs = baseTimeMs;
                 if (!hasChangeover) {
-                  // Apply a 8-hour bias for Vibe runs to group same parts, and 1-hour bias for other equipment
-                  biasedTimeMs = isVibe ? baseTimeMs - 28800000 : baseTimeMs - 3600000;
+                  // Apply dynamic Vibe grouping window and 1-hour bias for other equipment
+                  biasedTimeMs = isVibe ? baseTimeMs - vibeGroupingWindowMs : baseTimeMs - 3600000;
                 }
                 
                 batchOptions.push({ batch, slot: cached.slot, constrainingChildPartId: cached.constrainingChildPartId, baseTimeMs, biasedTimeMs });
@@ -1259,15 +1269,35 @@ export async function registerRoutes(
             batchOptions.sort((a, b) => {
               const timeDiff = Math.abs(a.baseTimeMs - b.baseTimeMs);
               if (timeDiff <= 14400000) { // 4 * 60 * 60 * 1000
-                const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
-                if (priorityDiff !== 0) return priorityDiff;
+                if (sortingRule === 'edd') {
+                  if (a.batch.dueDateMs !== b.batch.dueDateMs) {
+                    return a.batch.dueDateMs - b.batch.dueDateMs;
+                  }
+                } else if (sortingRule === 'spt') {
+                  if (a.batch.processingTimeMinutes !== b.batch.processingTimeMinutes) {
+                    return a.batch.processingTimeMinutes - b.batch.processingTimeMinutes;
+                  }
+                } else {
+                  const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
+                  if (priorityDiff !== 0) return priorityDiff;
+                }
               }
               
               if (a.biasedTimeMs !== b.biasedTimeMs) return a.biasedTimeMs - b.biasedTimeMs;
               
-              const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
-              if (priorityDiff !== 0) return priorityDiff;
-              return a.batch.stepOrder - b.batch.stepOrder;
+              if (sortingRule === 'edd') {
+                if (a.batch.dueDateMs !== b.batch.dueDateMs) {
+                  return a.batch.dueDateMs - b.batch.dueDateMs;
+                }
+              } else if (sortingRule === 'spt') {
+                if (a.batch.processingTimeMinutes !== b.batch.processingTimeMinutes) {
+                  return a.batch.processingTimeMinutes - b.batch.processingTimeMinutes;
+                }
+              } else {
+                const priorityDiff = a.batch.orderPriority - b.batch.orderPriority;
+                if (priorityDiff !== 0) return priorityDiff;
+              }
+              return a.batch.batchIndex - b.batch.batchIndex;
             });
             
             const best = batchOptions[0];
@@ -1580,17 +1610,147 @@ export async function registerRoutes(
         }
       }
 
+      // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
       const optimalSupplyRates: Record<number, number> = {};
-
-      // Run Pass 2 (initial) to find the actual Gantt chart schedule completion date
-      const { tasksList: initialRealTasks } = runSimulation(false, unconstrainedStartTimes);
-      
-      let realEndTimeMs = workingStartTime.getTime();
-      for (const t of initialRealTasks) {
-        const endMs = new Date(t.endTime).getTime();
-        if (endMs > realEndTimeMs) realEndTimeMs = endMs;
+      const workOrderNumberMap = new Map<number, string | null>();
+      for (const order of allOrders) {
+        workOrderNumberMap.set(order.id, order.workOrderNumber);
       }
-      const actualDurationDays = countWorkingDaysBetween(workingStartTime, new Date(realEndTimeMs), workDays);
+
+      // Helper to identify the main equipment unit for task grouping
+      const getEquipmentUnitKey = (task: ScheduledTask) => {
+        if (!task.equipmentIds || task.equipmentIds.length === 0) return "no-equipment";
+        const mainEq = task.equipmentIds.find(id => mainEquipmentIds.has(id));
+        if (mainEq !== undefined) {
+          const idx = task.equipmentIds.indexOf(mainEq);
+          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
+          return `${mainEq}_${unitIdx}`;
+        }
+        const units = task.equipmentIds.map((id, idx) => {
+          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
+          return `${id}_${unitIdx}`;
+        });
+        return units.sort().join(",");
+      };
+
+      // Helper to merge tasks list
+      const getMergedTasks = (tasksList: ScheduledTask[]): ScheduledTask[] => {
+        const tasksByEquipmentUnit = new Map<string, ScheduledTask[]>();
+        for (const task of tasksList) {
+          const eqKey = getEquipmentUnitKey(task);
+          if (!tasksByEquipmentUnit.has(eqKey)) {
+            tasksByEquipmentUnit.set(eqKey, []);
+          }
+          tasksByEquipmentUnit.get(eqKey)!.push(task);
+        }
+
+        const merged: ScheduledTask[] = [];
+
+        for (const [eqKey, unitTasks] of tasksByEquipmentUnit.entries()) {
+          // Sort chronologically by start time
+          unitTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+          let currentMerged: ScheduledTask | null = null;
+          for (const task of unitTasks) {
+            if (currentMerged === null) {
+              const newTask = { ...task };
+              newTask.combinedOrders = [{
+                workOrderId: task.workOrderId,
+                workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                quantity: task.unitsCount || 0
+              }];
+              currentMerged = newTask;
+            } else {
+              const canMerge = 
+                currentMerged.partNumber === task.partNumber &&
+                currentMerged.stepId === task.stepId &&
+                currentMerged.type === task.type;
+
+              if (canMerge) {
+                const prevEnd = new Date(currentMerged.endTime).getTime();
+                const currEnd = new Date(task.endTime).getTime();
+                if (currEnd > prevEnd) {
+                  currentMerged.endTime = task.endTime;
+                }
+                currentMerged.unitsCount = (currentMerged.unitsCount || 0) + (task.unitsCount || 0);
+                if (task.isShortageAffected) {
+                  currentMerged.isShortageAffected = true;
+                }
+                if (task.constrainingSubassemblyName) {
+                  currentMerged.constrainingSubassemblyName = task.constrainingSubassemblyName;
+                }
+                
+                if (!currentMerged.combinedOrders) currentMerged.combinedOrders = [];
+                const existingOrder = currentMerged.combinedOrders.find(co => co.workOrderId === task.workOrderId);
+                if (existingOrder) {
+                  existingOrder.quantity += task.unitsCount || 0;
+                } else {
+                  currentMerged.combinedOrders.push({
+                    workOrderId: task.workOrderId,
+                    workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                    quantity: task.unitsCount || 0
+                  });
+                }
+              } else {
+                merged.push(currentMerged);
+                const newTask = { ...task };
+                newTask.combinedOrders = [{
+                  workOrderId: task.workOrderId,
+                  workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                  quantity: task.unitsCount || 0
+                }];
+                currentMerged = newTask;
+              }
+            }
+          }
+          if (currentMerged) {
+            merged.push(currentMerged);
+          }
+        }
+        return merged;
+      };
+
+      // Define candidates for Multi-Heuristic Optimizer Search
+      const candidates: { rule: 'priority' | 'edd' | 'spt'; windowMs: number }[] = [
+        { rule: 'priority', windowMs: 14400000 },
+        { rule: 'priority', windowMs: 28800000 },
+        { rule: 'priority', windowMs: 57600000 },
+        { rule: 'edd', windowMs: 14400000 },
+        { rule: 'edd', windowMs: 28800000 },
+        { rule: 'edd', windowMs: 57600000 },
+        { rule: 'spt', windowMs: 14400000 },
+        { rule: 'spt', windowMs: 28800000 },
+        { rule: 'spt', windowMs: 57600000 }
+      ];
+
+      let bestCandidate: any = null;
+      let minScore = Infinity;
+
+      for (const cand of candidates) {
+        const { tasksList } = runSimulation(false, unconstrainedStartTimes, cand.rule, cand.windowMs);
+        const merged = getMergedTasks(tasksList);
+        
+        let maxEndMs = workingStartTime.getTime();
+        for (const t of merged) {
+          const endMs = new Date(t.endTime).getTime();
+          if (endMs > maxEndMs) maxEndMs = endMs;
+        }
+        
+        const workingDays = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
+        // Objective score: Completion days has high priority weight, followed by task count (setup overhead)
+        const score = workingDays * 1000 + merged.length;
+        
+        if (score < minScore) {
+          minScore = score;
+          bestCandidate = {
+            rule: cand.rule,
+            windowMs: cand.windowMs,
+            workingDays
+          };
+        }
+      }
+
+      const actualDurationDays = bestCandidate.workingDays;
       
       // Calculate rates from simulation-based demands (actual schedule-dictated average rate)
       for (const childIdStr of Object.keys(subassemblyDemands)) {
@@ -1603,7 +1763,6 @@ export async function registerRoutes(
 
       // Fallback: For parent parts that have BOM deps but NO simulation tasks (no test steps),
       // compute rate = total demand / schedule duration
-      // First, aggregate total quantity per parent part that has no sim tasks
       const noSimParentDemand: Record<number, { totalQty: number; earliestDue: number | null }> = {};
       for (const order of orders) {
         if (partsWithSimTasks.has(order.partNumberId)) continue;
@@ -1642,104 +1801,9 @@ export async function registerRoutes(
       }
 
       // Run Pass 2 (final) to compute isShortageAffected flag using newly calculated optimalSupplyRates
-      const { tasksList: realTasks } = runSimulation(false, unconstrainedStartTimes);
-
-      // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
-      const workOrderNumberMap = new Map<number, string | null>();
-      for (const order of allOrders) {
-        workOrderNumberMap.set(order.id, order.workOrderNumber);
-      }
-
-      // Helper to identify the main equipment unit for task grouping
-      const getEquipmentUnitKey = (task: ScheduledTask) => {
-        if (!task.equipmentIds || task.equipmentIds.length === 0) return "no-equipment";
-        const mainEq = task.equipmentIds.find(id => mainEquipmentIds.has(id));
-        if (mainEq !== undefined) {
-          const idx = task.equipmentIds.indexOf(mainEq);
-          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
-          return `${mainEq}_${unitIdx}`;
-        }
-        const units = task.equipmentIds.map((id, idx) => {
-          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
-          return `${id}_${unitIdx}`;
-        });
-        return units.sort().join(",");
-      };
-
-      // Group tasks by equipment unit key
-      const tasksByEquipmentUnit = new Map<string, ScheduledTask[]>();
-      for (const task of realTasks) {
-        const eqKey = getEquipmentUnitKey(task);
-        if (!tasksByEquipmentUnit.has(eqKey)) {
-          tasksByEquipmentUnit.set(eqKey, []);
-        }
-        tasksByEquipmentUnit.get(eqKey)!.push(task);
-      }
-
-      const mergedTasks: ScheduledTask[] = [];
-
-      for (const [eqKey, unitTasks] of tasksByEquipmentUnit.entries()) {
-        // Sort chronologically by start time
-        unitTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
-        let currentMerged: ScheduledTask | null = null;
-        for (const task of unitTasks) {
-          if (currentMerged === null) {
-            const newTask = { ...task };
-            newTask.combinedOrders = [{
-              workOrderId: task.workOrderId,
-              workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
-              quantity: task.unitsCount || 0
-            }];
-            currentMerged = newTask;
-          } else {
-            // Combine consecutive tasks of the same Part Number, Step ID, and Type on this unit
-            const canMerge = 
-              currentMerged.partNumber === task.partNumber &&
-              currentMerged.stepId === task.stepId &&
-              currentMerged.type === task.type;
-
-            if (canMerge) {
-              const prevEnd = new Date(currentMerged.endTime).getTime();
-              const currEnd = new Date(task.endTime).getTime();
-              if (currEnd > prevEnd) {
-                currentMerged.endTime = task.endTime;
-              }
-              currentMerged.unitsCount = (currentMerged.unitsCount || 0) + (task.unitsCount || 0);
-              if (task.isShortageAffected) {
-                currentMerged.isShortageAffected = true;
-              }
-              if (task.constrainingSubassemblyName) {
-                currentMerged.constrainingSubassemblyName = task.constrainingSubassemblyName;
-              }
-              
-              if (!currentMerged.combinedOrders) currentMerged.combinedOrders = [];
-              const existingOrder = currentMerged.combinedOrders.find(co => co.workOrderId === task.workOrderId);
-              if (existingOrder) {
-                existingOrder.quantity += task.unitsCount || 0;
-              } else {
-                currentMerged.combinedOrders.push({
-                  workOrderId: task.workOrderId,
-                  workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
-                  quantity: task.unitsCount || 0
-                });
-              }
-            } else {
-              mergedTasks.push(currentMerged);
-              const newTask = { ...task };
-              newTask.combinedOrders = [{
-                workOrderId: task.workOrderId,
-                workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
-                quantity: task.unitsCount || 0
-              }];
-              currentMerged = newTask;
-            }
-          }
-        }
-        if (currentMerged) {
-          mergedTasks.push(currentMerged);
-        }
-      }
+      // and using the optimal rule and grouping window found by the solver
+      const { tasksList: finalRealTasks } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs);
+      const mergedTasks = getMergedTasks(finalRealTasks);
 
       // Generate unique IDs for each merged task to ensure the Gantt chart can render them as separate rows
       const segmentCounter = new Map<string, number>();
