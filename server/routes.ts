@@ -1247,8 +1247,8 @@ export async function registerRoutes(
                 const baseTimeMs = cached.slot.startTime.getTime();
                 let biasedTimeMs = baseTimeMs;
                 if (!hasChangeover) {
-                  // Apply a 48-hour bias for Vibe runs to group same parts, and 1-hour bias for other equipment
-                  biasedTimeMs = isVibe ? baseTimeMs - 172800000 : baseTimeMs - 3600000;
+                  // Apply a 8-hour bias for Vibe runs to group same parts, and 1-hour bias for other equipment
+                  biasedTimeMs = isVibe ? baseTimeMs - 28800000 : baseTimeMs - 3600000;
                 }
                 
                 batchOptions.push({ batch, slot: cached.slot, constrainingChildPartId: cached.constrainingChildPartId, baseTimeMs, biasedTimeMs });
