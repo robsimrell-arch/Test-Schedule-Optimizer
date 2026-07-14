@@ -533,6 +533,14 @@ export default function Dashboard() {
                           const estCompletion = wo.estCompletion;
                           const isLate = wo.dueDate && estCompletion && estCompletion.getTime() > toFactoryLocal(wo.dueDate).getTime();
                           
+                          let daysText = "";
+                          if (estCompletion) {
+                            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+                            const estStart = new Date(estCompletion); estStart.setHours(0, 0, 0, 0);
+                            const diffDays = Math.round((estStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
+                            daysText = diffDays <= 0 ? "today" : `in ${diffDays}d`;
+                          }
+
                           let statusBadge = <Badge variant="secondary" className="text-[9px] py-0 px-1 h-3.5 leading-none">Unscheduled</Badge>;
                           if (estCompletion) {
                             if (wo.dueDate) {
@@ -561,7 +569,8 @@ export default function Dashboard() {
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {estCompletion && (
                                   <span className="text-[10px] font-medium text-foreground">
-                                    {estCompletion.toLocaleDateString()}
+                                    {estCompletion.toLocaleDateString()}{" "}
+                                    <span className="text-muted-foreground text-[9px] font-normal">({daysText})</span>
                                   </span>
                                 )}
                                 {statusBadge}
