@@ -1081,10 +1081,16 @@ export async function registerRoutes(
             const slotIndices = slots.map((time: Date, idx: number) => {
               let changeoverTime = 0;
               const lastPartOnUnit = equipmentLastPart[eqId]?.[idx];
-              if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
-                if (eqId === vibeEquipmentId) {
-                  changeoverTime = 30; // 30 min hardcoded for Vibration
-                } else {
+              if (eqId === vibeEquipmentId) {
+                if (lastPartOnUnit !== null) {
+                  if (lastPartOnUnit === batch.partNumberId) {
+                    changeoverTime = 15;
+                  } else {
+                    changeoverTime = 45;
+                  }
+                }
+              } else {
+                if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
                   const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
                   if (partChangeoverConfig) changeoverTime = partChangeoverConfig;
                 }
@@ -1130,10 +1136,16 @@ export async function registerRoutes(
               for (let i = 0; i < slots.length; i++) {
                 let changeoverTime = 0;
                 const lastPartOnUnit = equipmentLastPart[eqId]?.[i];
-                if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
-                  if (eqId === vibeEquipmentId) {
-                    changeoverTime = 30; // 30 min hardcoded for Vibration
-                  } else {
+                if (eqId === vibeEquipmentId) {
+                  if (lastPartOnUnit !== null) {
+                    if (lastPartOnUnit === batch.partNumberId) {
+                      changeoverTime = 15;
+                    } else {
+                      changeoverTime = 45;
+                    }
+                  }
+                } else {
+                  if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
                     const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
                     if (partChangeoverConfig) changeoverTime = partChangeoverConfig;
                   }
@@ -1222,15 +1234,22 @@ export async function registerRoutes(
               const cached = slotCache.get(batchKey)!;
               if (cached.slot) {
                 let hasChangeover = false;
+                let isVibe = false;
                 for (const unit of cached.slot.selectedUnits) {
+                  if (unit.eqId === vibeEquipmentId) {
+                    isVibe = true;
+                  }
                   const lastPartOnUnit = equipmentLastPart[unit.eqId]?.[unit.unitIdx];
                   if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
                     hasChangeover = true;
-                    break;
                   }
                 }
                 const baseTimeMs = cached.slot.startTime.getTime();
-                const biasedTimeMs = hasChangeover ? baseTimeMs : baseTimeMs - 3600000;
+                let biasedTimeMs = baseTimeMs;
+                if (!hasChangeover) {
+                  // Apply a 48-hour bias for Vibe runs to group same parts, and 1-hour bias for other equipment
+                  biasedTimeMs = isVibe ? baseTimeMs - 172800000 : baseTimeMs - 3600000;
+                }
                 
                 batchOptions.push({ batch, slot: cached.slot, constrainingChildPartId: cached.constrainingChildPartId, baseTimeMs, biasedTimeMs });
               }
