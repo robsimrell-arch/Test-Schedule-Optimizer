@@ -493,15 +493,15 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              <Card className="flex flex-col justify-between">
+              <Card className="flex flex-col">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                     <span>Work Order Estimates</span>
                     <Clock className="w-4 h-4 text-primary" />
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="flex-1 min-h-0">
-                  <div className="max-h-[140px] overflow-y-auto pr-1 space-y-3">
+                <CardContent className="flex-1">
+                  <div className="space-y-1">
                     {workOrders.length === 0 ? (
                       <div className="text-xs text-muted-foreground italic text-center py-4">No work orders.</div>
                     ) : (
@@ -517,38 +517,50 @@ export default function Dashboard() {
                           return new Date(maxTime);
                         };
 
-                        return workOrders.map((wo: any) => {
-                          const estCompletion = getWorkOrderEstCompletion(wo.id);
+                        const sortedWorkOrders = [...workOrders].map((wo: any) => ({
+                          ...wo,
+                          estCompletion: getWorkOrderEstCompletion(wo.id)
+                        })).sort((a: any, b: any) => {
+                          if (a.estCompletion && b.estCompletion) {
+                            return a.estCompletion.getTime() - b.estCompletion.getTime();
+                          }
+                          if (a.estCompletion) return -1;
+                          if (b.estCompletion) return 1;
+                          return 0;
+                        });
+
+                        return sortedWorkOrders.map((wo: any) => {
+                          const estCompletion = wo.estCompletion;
                           const isLate = wo.dueDate && estCompletion && estCompletion.getTime() > toFactoryLocal(wo.dueDate).getTime();
                           
-                          let statusBadge = <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4">Unscheduled</Badge>;
+                          let statusBadge = <Badge variant="secondary" className="text-[9px] py-0 px-1 h-3.5 leading-none">Unscheduled</Badge>;
                           if (estCompletion) {
                             if (wo.dueDate) {
                               if (isLate) {
                                 const diffMs = estCompletion.getTime() - toFactoryLocal(wo.dueDate).getTime();
                                 const daysLate = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                                statusBadge = <Badge variant="destructive" className="text-[10px] py-0 px-1.5 h-4">{daysLate}d late</Badge>;
+                                statusBadge = <Badge variant="destructive" className="text-[9px] py-0 px-1 h-3.5 leading-none">{daysLate}d late</Badge>;
                               } else {
-                                statusBadge = <Badge className="text-[10px] py-0 px-1.5 h-4 bg-emerald-100 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">On Time</Badge>;
+                                statusBadge = <Badge className="text-[9px] py-0 px-1 h-3.5 leading-none bg-emerald-100 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">On Time</Badge>;
                               }
                             } else {
-                              statusBadge = <Badge variant="default" className="text-[10px] py-0 px-1.5 h-4 bg-blue-100 hover:bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400">Scheduled</Badge>;
+                              statusBadge = <Badge variant="default" className="text-[9px] py-0 px-1 h-3.5 leading-none bg-blue-100 hover:bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400">Scheduled</Badge>;
                             }
                           }
 
                           return (
-                            <div key={wo.id} className="flex items-center justify-between border-b border-border/40 pb-2 last:border-0 last:pb-0 text-sm">
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-semibold truncate text-foreground text-xs">
+                            <div key={wo.id} className="flex items-center justify-between border-b border-border/40 py-1 last:border-0 text-[11px] gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                <span className="font-semibold text-foreground shrink-0 text-[11px]">
                                   {wo.workOrderNumber ?? `WO-${String(wo.id).padStart(4, "0")}`}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground truncate max-w-[130px]">
-                                  {wo.partNumber?.partNumber ?? "Unknown"}
+                                <span className="text-[10px] text-muted-foreground truncate">
+                                  ({wo.partNumber?.partNumber ?? "Unknown"})
                                 </span>
                               </div>
-                              <div className="flex flex-col items-end gap-0.5 shrink-0">
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 {estCompletion && (
-                                  <span className="text-[10px] font-semibold text-foreground">
+                                  <span className="text-[10px] font-medium text-foreground">
                                     {estCompletion.toLocaleDateString()}
                                   </span>
                                 )}
