@@ -12,6 +12,9 @@ import type { ScheduledTask, ScheduleResponse } from "../shared/schema";
 const SHIFT_START_HOUR = 7; // 7 AM
 const HOURS_PER_SHIFT = 8;
 
+// Cache for solved optimal supply rates
+const optimalRatesCache = new Map<string, any>();
+
 // Helper: Check if a day is a working day based on work week setting
 function isWorkingDay(date: Date, workDays: 5 | 6 | 7): boolean {
   const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
@@ -734,6 +737,105 @@ export async function registerRoutes(
       const mainEquipmentIds = new Set([...chamberIds, vibeEquipmentId]);
       const now = new Date();
       const workingStartTime = getNextWorkingTime(now, shifts, workDays);
+
+      // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
+      const workOrderNumberMap = new Map<number, string | null>();
+      for (const order of allOrders) {
+        workOrderNumberMap.set(order.id, order.workOrderNumber);
+      }
+
+      // Helper to identify the main equipment unit for task grouping
+      const getEquipmentUnitKey = (task: ScheduledTask) => {
+        if (!task.equipmentIds || task.equipmentIds.length === 0) return "no-equipment";
+        const mainEq = task.equipmentIds.find(id => mainEquipmentIds.has(id));
+        if (mainEq !== undefined) {
+          const idx = task.equipmentIds.indexOf(mainEq);
+          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
+          return `${mainEq}_${unitIdx}`;
+        }
+        const units = task.equipmentIds.map((id, idx) => {
+          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
+          return `${id}_${unitIdx}`;
+        });
+        return units.sort().join(",");
+      };
+
+      // Helper to merge tasks list
+      const getMergedTasks = (tasksList: ScheduledTask[]): ScheduledTask[] => {
+        const tasksByEquipmentUnit = new Map<string, ScheduledTask[]>();
+        for (const task of tasksList) {
+          const eqKey = getEquipmentUnitKey(task);
+          if (!tasksByEquipmentUnit.has(eqKey)) {
+            tasksByEquipmentUnit.set(eqKey, []);
+          }
+          tasksByEquipmentUnit.get(eqKey)!.push(task);
+        }
+
+        const merged: ScheduledTask[] = [];
+
+        for (const [eqKey, unitTasks] of tasksByEquipmentUnit.entries()) {
+          // Sort chronologically by start time
+          unitTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+          let currentMerged: ScheduledTask | null = null;
+          for (const task of unitTasks) {
+            if (currentMerged === null) {
+              const newTask = { ...task };
+              newTask.combinedOrders = [{
+                workOrderId: task.workOrderId,
+                workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                quantity: task.unitsCount || 0
+              }];
+              currentMerged = newTask;
+            } else {
+              const canMerge = 
+                currentMerged.partNumber === task.partNumber &&
+                currentMerged.stepId === task.stepId &&
+                currentMerged.type === task.type;
+
+              if (canMerge) {
+                const prevEnd = new Date(currentMerged.endTime).getTime();
+                const currEnd = new Date(task.endTime).getTime();
+                if (currEnd > prevEnd) {
+                  currentMerged.endTime = task.endTime;
+                }
+                currentMerged.unitsCount = (currentMerged.unitsCount || 0) + (task.unitsCount || 0);
+                if (task.isShortageAffected) {
+                  currentMerged.isShortageAffected = true;
+                }
+                if (task.constrainingSubassemblyName) {
+                  currentMerged.constrainingSubassemblyName = task.constrainingSubassemblyName;
+                }
+                
+                if (!currentMerged.combinedOrders) currentMerged.combinedOrders = [];
+                const existingOrder = currentMerged.combinedOrders.find(co => co.workOrderId === task.workOrderId);
+                if (existingOrder) {
+                  existingOrder.quantity += task.unitsCount || 0;
+                } else {
+                  currentMerged.combinedOrders.push({
+                    workOrderId: task.workOrderId,
+                    workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                    quantity: task.unitsCount || 0
+                  });
+                }
+              } else {
+                merged.push(currentMerged);
+                const newTask = { ...task };
+                newTask.combinedOrders = [{
+                  workOrderId: task.workOrderId,
+                  workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
+                  quantity: task.unitsCount || 0
+                }];
+                currentMerged = newTask;
+              }
+            }
+          }
+          if (currentMerged) {
+            merged.push(currentMerged);
+          }
+        }
+        return merged;
+      };
 
       // Pre-scheduling shortage check (updated to include supply rules)
       const supplyByPartId: Record<number, number> = {};
@@ -1481,24 +1583,38 @@ export async function registerRoutes(
         return { tasksList, batchCompletions };
       }
 
-      // --- SIMULATION RUNS ---
-      // Run 1: Unconstrained (ideal schedule) - Ignore supply rate limit for the baseline run
-      const { tasksList: unconstrainedTasks } = runSimulation(true, undefined, 'priority', 28800000, true);
-      const unconstrainedStartTimes: Record<string, Date> = {};
+      // --- SIMULATION RUNS & CACHE CHECK ---
+      // Compute cache key for optimal rates cache (optimal rates do not change unless shifts, workDays, or orders change)
+      const ordersKey = JSON.stringify(orders.map(o => ({ id: o.id, q: o.quantity, p: o.priority, d: o.dueDate })));
+      const cacheKey = `${shifts}-${workDays}-${ordersKey}`;
       
-      for (const t of unconstrainedTasks) {
-        const bMatch = t.id.match(/^wo-(\d+)-step-(\d+)-b(\d+)/);
-        if (bMatch) {
-          const key = `${bMatch[1]}-${bMatch[2]}-${Number(bMatch[3]) - 1}`;
-          unconstrainedStartTimes[key] = new Date(t.startTime);
-        } else {
-          const sMatch = t.id.match(/^wo-(\d+)-step-(\d+)/);
-          if (sMatch) {
-            const key = `${sMatch[1]}-${sMatch[2]}-0`;
+      const optimalSupplyRates: Record<number, number> = {};
+      let unconstrainedStartTimes: Record<string, Date> = {};
+      let bestCandidate: any = null;
+
+      if (optimalRatesCache.has(cacheKey)) {
+        const cached = optimalRatesCache.get(cacheKey)!;
+        Object.assign(optimalSupplyRates, cached.optimalSupplyRates);
+        unconstrainedStartTimes = { ...cached.unconstrainedStartTimes };
+        bestCandidate = { ...cached.bestCandidate };
+      } else {
+        // Run 1: Unconstrained (ideal schedule) - Ignore supply rate limit for the baseline run
+        const { tasksList: unconstrainedTasks } = runSimulation(true, undefined, 'priority', 28800000, true);
+        unconstrainedStartTimes = {};
+        
+        for (const t of unconstrainedTasks) {
+          const bMatch = t.id.match(/^wo-(\d+)-step-(\d+)-b(\d+)/);
+          if (bMatch) {
+            const key = `${bMatch[1]}-${bMatch[2]}-${Number(bMatch[3]) - 1}`;
             unconstrainedStartTimes[key] = new Date(t.startTime);
+          } else {
+            const sMatch = t.id.match(/^wo-(\d+)-step-(\d+)/);
+            if (sMatch) {
+              const key = `${sMatch[1]}-${sMatch[2]}-0`;
+              unconstrainedStartTimes[key] = new Date(t.startTime);
+            }
           }
         }
-      }
 
       // Calculate optimal supply rates for subassemblies
       // Two approaches combined:
@@ -1673,105 +1789,7 @@ export async function registerRoutes(
         }
       }
 
-      // Build a map of work order ID -> work order number to lookup numbers for combinedOrders
-      const optimalSupplyRates: Record<number, number> = {};
-      const workOrderNumberMap = new Map<number, string | null>();
-      for (const order of allOrders) {
-        workOrderNumberMap.set(order.id, order.workOrderNumber);
-      }
 
-      // Helper to identify the main equipment unit for task grouping
-      const getEquipmentUnitKey = (task: ScheduledTask) => {
-        if (!task.equipmentIds || task.equipmentIds.length === 0) return "no-equipment";
-        const mainEq = task.equipmentIds.find(id => mainEquipmentIds.has(id));
-        if (mainEq !== undefined) {
-          const idx = task.equipmentIds.indexOf(mainEq);
-          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
-          return `${mainEq}_${unitIdx}`;
-        }
-        const units = task.equipmentIds.map((id, idx) => {
-          const unitIdx = task.equipmentUnitIndices?.[idx] ?? 0;
-          return `${id}_${unitIdx}`;
-        });
-        return units.sort().join(",");
-      };
-
-      // Helper to merge tasks list
-      const getMergedTasks = (tasksList: ScheduledTask[]): ScheduledTask[] => {
-        const tasksByEquipmentUnit = new Map<string, ScheduledTask[]>();
-        for (const task of tasksList) {
-          const eqKey = getEquipmentUnitKey(task);
-          if (!tasksByEquipmentUnit.has(eqKey)) {
-            tasksByEquipmentUnit.set(eqKey, []);
-          }
-          tasksByEquipmentUnit.get(eqKey)!.push(task);
-        }
-
-        const merged: ScheduledTask[] = [];
-
-        for (const [eqKey, unitTasks] of tasksByEquipmentUnit.entries()) {
-          // Sort chronologically by start time
-          unitTasks.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
-          let currentMerged: ScheduledTask | null = null;
-          for (const task of unitTasks) {
-            if (currentMerged === null) {
-              const newTask = { ...task };
-              newTask.combinedOrders = [{
-                workOrderId: task.workOrderId,
-                workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
-                quantity: task.unitsCount || 0
-              }];
-              currentMerged = newTask;
-            } else {
-              const canMerge = 
-                currentMerged.partNumber === task.partNumber &&
-                currentMerged.stepId === task.stepId &&
-                currentMerged.type === task.type;
-
-              if (canMerge) {
-                const prevEnd = new Date(currentMerged.endTime).getTime();
-                const currEnd = new Date(task.endTime).getTime();
-                if (currEnd > prevEnd) {
-                  currentMerged.endTime = task.endTime;
-                }
-                currentMerged.unitsCount = (currentMerged.unitsCount || 0) + (task.unitsCount || 0);
-                if (task.isShortageAffected) {
-                  currentMerged.isShortageAffected = true;
-                }
-                if (task.constrainingSubassemblyName) {
-                  currentMerged.constrainingSubassemblyName = task.constrainingSubassemblyName;
-                }
-                
-                if (!currentMerged.combinedOrders) currentMerged.combinedOrders = [];
-                const existingOrder = currentMerged.combinedOrders.find(co => co.workOrderId === task.workOrderId);
-                if (existingOrder) {
-                  existingOrder.quantity += task.unitsCount || 0;
-                } else {
-                  currentMerged.combinedOrders.push({
-                    workOrderId: task.workOrderId,
-                    workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
-                    quantity: task.unitsCount || 0
-                  });
-                }
-              } else {
-                merged.push(currentMerged);
-                const newTask = { ...task };
-                newTask.combinedOrders = [{
-                  workOrderId: task.workOrderId,
-                  workOrderNumber: workOrderNumberMap.get(task.workOrderId) ?? null,
-                  quantity: task.unitsCount || 0
-                }];
-                currentMerged = newTask;
-              }
-            }
-          }
-          if (currentMerged) {
-            merged.push(currentMerged);
-          }
-        }
-        return merged;
-      };
 
 
       // Define candidates for Multi-Heuristic Optimizer Search
@@ -1787,7 +1805,7 @@ export async function registerRoutes(
         { rule: 'spt', windowMs: 57600000 }
       ];
 
-      let bestCandidate: any = null;
+      bestCandidate = null;
       let minScore = Infinity;
       let bestUnconstrainedTasks: ScheduledTask[] = [];
 
@@ -1923,7 +1941,16 @@ export async function registerRoutes(
           solvedRates[partId] = Math.ceil(cap);
         }
       }
+      
+      // Cache the solved optimal supply rates and schedule metadata
+      optimalRatesCache.set(cacheKey, {
+        optimalSupplyRates: { ...solvedRates },
+        unconstrainedStartTimes: { ...unconstrainedStartTimes },
+        bestCandidate: { ...bestCandidate }
+      });
+      
       Object.assign(optimalSupplyRates, solvedRates);
+      }
 
       // Run final pass with ignoreRateLimit=false for the Gantt chart (constrained by actual supply rules)
       rawSupplyCache.clear();

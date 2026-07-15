@@ -36,6 +36,8 @@ const ganttStyles = `
   }
 `;
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 import { AlertCircle, AlertTriangle, BarChart3, CalendarDays, Clock, Calendar, Plus, Trash2, HelpCircle, CheckCircle2, Ship, TrendingUp, Gauge, Save, Download } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -46,6 +48,90 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useParts, useAllPartDependencies, useSavePartSupplyRule, useWorkOrders } from "@/hooks/use-manufacturing";
+
+function ProgressiveLoader() {
+  const [progress, setProgress] = useState(0);
+  const [stepIndex, setStepIndex] = useState(0);
+
+  const steps = [
+    { threshold: 15, text: "Initializing factory simulation parameters..." },
+    { threshold: 35, text: "Querying order backlog & equipment inventory..." },
+    { threshold: 55, text: "Simulating unconstrained baseline schedule..." },
+    { threshold: 75, text: "Solving optimal bottleneck supply rates..." },
+    { threshold: 90, text: "Resolving part shortages and dependencies..." },
+    { threshold: 97, text: "Generating final production timeline..." },
+    { threshold: 100, text: "Rendering Gantt chart..." }
+  ];
+
+  useEffect(() => {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - start;
+      const val = Math.min(98, Math.round(98 * (1 - Math.exp(-elapsed / 4500))));
+      setProgress(val);
+      
+      const activeStepIdx = steps.findIndex(s => val < s.threshold);
+      if (activeStepIdx !== -1) {
+        setStepIndex(activeStepIdx);
+      } else {
+        setStepIndex(steps.length - 1);
+      }
+    }, 150);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[70vh] max-w-md mx-auto space-y-8 p-6">
+      <div className="text-center space-y-2">
+        <h3 className="text-lg font-semibold tracking-tight text-foreground">Calculating Production Schedule</h3>
+        <p className="text-sm text-muted-foreground transition-all duration-300 min-h-[20px]">
+          {steps[stepIndex]?.text || "Processing..."}
+        </p>
+      </div>
+      
+      <div className="w-full space-y-2">
+        <Progress value={progress} className="h-2 bg-secondary" />
+        <div className="flex justify-between text-xs text-muted-foreground font-mono">
+          <span>{progress}%</span>
+          <span>ETA: ~10s</span>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 w-full gap-3 text-sm">
+        {steps.slice(0, 6).map((step, idx) => {
+          const isCompleted = progress >= step.threshold;
+          const isActive = idx === stepIndex;
+          
+          return (
+            <div
+              key={idx}
+              className={cn(
+                "flex items-center gap-3 p-3 rounded-lg border transition-all duration-300",
+                isActive 
+                  ? "bg-primary/5 border-primary text-primary font-medium shadow-sm animate-pulse" 
+                  : isCompleted 
+                    ? "bg-muted/30 border-muted text-muted-foreground" 
+                    : "bg-background border-muted/50 text-muted-foreground/60"
+              )}
+            >
+              <div className="flex items-center justify-center w-5 h-5 rounded-full border text-xs">
+                {isCompleted ? (
+                  <span className="text-green-500 font-bold">✓</span>
+                ) : isActive ? (
+                  <span className="animate-spin h-2.5 w-2.5 border-2 border-primary border-t-transparent rounded-full" />
+                ) : (
+                  <span>{idx + 1}</span>
+                )}
+              </div>
+              <span>{step.text}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(() => {
@@ -292,15 +378,7 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="space-y-6">
-          <div className="h-8 w-48 bg-muted rounded animate-pulse" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Skeleton className="h-32 rounded-xl" />
-            <Skeleton className="h-32 rounded-xl" />
-            <Skeleton className="h-32 rounded-xl" />
-          </div>
-          <Skeleton className="h-[500px] rounded-xl" />
-        </div>
+        <ProgressiveLoader />
       </Layout>
     );
   }
