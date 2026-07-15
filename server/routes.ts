@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api, errorSchemas } from "../shared/routes";
+import fs from "fs";
 import { z } from "zod";
 import { addMinutes, formatISO, setHours, setMinutes, setSeconds, setMilliseconds, addDays, isBefore, isAfter } from "date-fns";
 import { seedDatabase } from "./seed";
@@ -1481,8 +1482,8 @@ export async function registerRoutes(
       }
 
       // --- SIMULATION RUNS ---
-      // Run 1: Unconstrained (ideal schedule)
-      const { tasksList: unconstrainedTasks } = runSimulation(true);
+      // Run 1: Unconstrained (ideal schedule) - Ignore supply rate limit for the baseline run
+      const { tasksList: unconstrainedTasks } = runSimulation(true, undefined, 'priority', 28800000, true);
       const unconstrainedStartTimes: Record<string, Date> = {};
       
       for (const t of unconstrainedTasks) {
@@ -1522,21 +1523,51 @@ export async function registerRoutes(
         for (const step of part.steps) {
           if (step.chamberRequired) {
             const partCompatibleChambers = compatibilityMap[partId] || [];
-            let totalChamberThroughput = 0;
             
+            // 1. Calculate how many parallel runs are allowed by non-chamber equipment constraints (like cables and backplanes)
+            const eqRequirements = (step.equipmentRequirements || []).filter((req: any) => !chamberIds.has(req.equipmentId));
+            let maxParallelStepRuns = Infinity;
+            
+            for (const req of eqRequirements) {
+              const eq = equipmentList.find(e => e.id === req.equipmentId);
+              if (!eq) continue;
+              const limit = Math.floor(eq.quantity / (req.quantityRequired || 1));
+              if (limit < maxParallelStepRuns) {
+                maxParallelStepRuns = limit;
+              }
+            }
+            
+            // 2. Gather all compatible chambers and their capacities
             const chambersList = partCompatibleChambers.length > 0
               ? partCompatibleChambers
               : chambers.map(c => ({ equipmentId: c.id, durationMinutes: step.durationMinutes || 0 }));
               
+            const chamberCapacities: number[] = [];
             for (const cInfo of chambersList) {
               const eq = equipmentList.find(e => e.id === cInfo.equipmentId);
               if (!eq) continue;
               const duration = cInfo.durationMinutes || step.durationMinutes || 1;
               const unitCapacity = (1440 / duration) * step.batchSize;
-              totalChamberThroughput += unitCapacity * eq.quantity;
+              // Add capacity for each unit of this chamber type
+              for (let i = 0; i < eq.quantity; i++) {
+                chamberCapacities.push(unitCapacity);
+              }
             }
-            if (totalChamberThroughput > 0 && totalChamberThroughput < minStepThroughput) {
-              minStepThroughput = totalChamberThroughput;
+            
+            // Sort capacities descending so we pick the fastest chambers
+            chamberCapacities.sort((a, b) => b - a);
+            
+            // 3. Sum up the capacities of the top N chambers, where N is the limit on parallel runs
+            const parallelLimit = isFinite(maxParallelStepRuns) ? maxParallelStepRuns : Infinity;
+            const chambersToUse = Math.min(chamberCapacities.length, parallelLimit);
+            
+            let stepChamberThroughput = 0;
+            for (let i = 0; i < chambersToUse; i++) {
+              stepChamberThroughput += chamberCapacities[i];
+            }
+            
+            if (stepChamberThroughput > 0 && stepChamberThroughput < minStepThroughput) {
+              minStepThroughput = stepChamberThroughput;
             }
           } else {
             const eqRequirements = (step.equipmentRequirements || []).filter((req: any) => !chamberIds.has(req.equipmentId));
@@ -1781,7 +1812,8 @@ export async function registerRoutes(
             rule: cand.rule,
             windowMs: cand.windowMs,
             workingDays,
-            taskCount: merged.length
+            taskCount: merged.length,
+            endMs: maxEndMs
           };
           bestUnconstrainedTasks = tasksList;
         }
@@ -1819,7 +1851,7 @@ export async function registerRoutes(
         }
       }
 
-      const targetDays = bestCandidate.workingDays;
+      const targetEndMs = bestCandidate.endMs;
       const targetTasks = bestCandidate.taskCount;
       
       // Compute total demand per part
@@ -1852,18 +1884,19 @@ export async function registerRoutes(
           if (endMs > maxEndMs) maxEndMs = endMs;
         }
         
-        const wd = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
-        return wd <= targetDays && merged.length <= targetTasks;
+        return maxEndMs <= targetEndMs && merged.length <= targetTasks;
       }
 
       // Initialize all rates to their total demand (guaranteed feasible upper bound)
       const solvedRates: Record<number, number> = {};
-      for (const partId of supplyDemandPartIds) {
+      // Sort part IDs deterministically to ensure coordinate descent is stable and predictable
+      const sortedPartIds = Array.from(supplyDemandPartIds).sort((a, b) => a - b);
+      for (const partId of sortedPartIds) {
         solvedRates[partId] = totalDemandPerPart[partId] || 1;
       }
 
-      // Binary search each part's rate independently (coordinate descent)
-      for (const partId of supplyDemandPartIds) {
+      // Binary search each part's rate independently (coordinate descent in stable order)
+      for (const partId of sortedPartIds) {
         let lo = 1;
         let hi = solvedRates[partId];
         let bestRate = hi;
@@ -1883,7 +1916,13 @@ export async function registerRoutes(
         solvedRates[partId] = bestRate;
       }
       
-      // Set the final optimal supply rates
+      // Set the final optimal supply rates (capped by maximum testing capacity to prevent equipment piling up)
+      for (const partId of sortedPartIds) {
+        const cap = getMaxTestCapacity(partId);
+        if (cap > 0 && solvedRates[partId] > cap) {
+          solvedRates[partId] = Math.ceil(cap);
+        }
+      }
       Object.assign(optimalSupplyRates, solvedRates);
 
       // Run final pass with ignoreRateLimit=false for the Gantt chart (constrained by actual supply rules)
