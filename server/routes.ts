@@ -853,7 +853,7 @@ export async function registerRoutes(
       }
 
       function getRawPartSupplyTime(partId: number, unitsNeeded: number, ignoreRateLimit = false, customRates?: Record<number, number>): Date {
-        const cacheKey = `${partId}-${unitsNeeded}-${ignoreRateLimit}-${customRates ? JSON.stringify(customRates) : 'none'}`;
+        const cacheKey = `${partId}-${unitsNeeded}-${ignoreRateLimit}`;
         const cached = rawSupplyCache.get(cacheKey);
         if (cached) return cached;
         const res = _getRawPartSupplyTime(partId, unitsNeeded, ignoreRateLimit, customRates);
@@ -935,6 +935,8 @@ export async function registerRoutes(
         ignoreRateLimit = false,
         customRates?: Record<number, number>
       ) {
+        rawSupplyCache.clear();
+        childReadyCache.clear();
         const machineAvailability: Record<number, Date[]> = {};
         equipmentList.forEach(eq => {
           machineAvailability[eq.id] = Array(eq.quantity).fill(workingStartTime); 
@@ -1838,93 +1840,47 @@ export async function registerRoutes(
         }
       }
 
-      // --- Bottleneck Run-Rate Solver for Optimal Supply Rates ---
-      // Calculate bottleneck run-rates from the optimal unconstrained schedule
+      // --- Binary Search Solver for Minimum Feasible Supply Rates ---
+      // Helper to check if a given set of rates achieves the target schedule
+      function isFeasible(testRates: Record<number, number>): boolean {
+        const { tasksList } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs, false, testRates);
+        const merged = getMergedTasks(tasksList);
+        
+        let maxEndMs = workingStartTime.getTime();
+        for (const t of merged) {
+          const endMs = new Date(t.endTime).getTime();
+          if (endMs > maxEndMs) maxEndMs = endMs;
+        }
+        
+        const wd = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
+        return wd <= targetDays && merged.length <= targetTasks;
+      }
+
+      // Initialize all rates to their total demand (guaranteed feasible upper bound)
       const solvedRates: Record<number, number> = {};
-      const partCompatibilities = allCompatibility;
-
       for (const partId of supplyDemandPartIds) {
-        const part = partsMap.get(partId);
-        if (!part) continue;
+        solvedRates[partId] = totalDemandPerPart[partId] || 1;
+      }
 
-        // Find steps for this part
-        const steps = part.steps || [];
-        if (steps.length === 0) {
-          // Fallback if no steps: total demand / project duration
-          const totalDemand = totalDemandPerPart[partId] || 1;
-          solvedRates[partId] = Math.ceil(totalDemand / Math.max(1, targetDays));
-          continue;
-        }
-
-        let partBottleneckCapacity = Infinity;
-
-        for (const step of steps) {
-          let stepCapacity = Infinity;
-
-          if (step.chamberRequired) {
-            // Find tasks for this part and step in the optimal schedule
-            const stepTasks = bestUnconstrainedTasks.filter(t => t.stepId === step.id);
-            
-            if (stepTasks.length > 0) {
-              // Calculate capacity based on the actual chamber(s) used in the schedule
-              for (const t of stepTasks) {
-                // Find which equipment ID in t.equipmentIds is a compatible chamber
-                const chamberEqId = t.equipmentIds?.find(eqId => {
-                  return partCompatibilities.some(c => c.partNumberId === partId && c.equipmentId === eqId);
-                });
-
-                if (chamberEqId !== undefined) {
-                  const comp = partCompatibilities.find(c => c.partNumberId === partId && c.equipmentId === chamberEqId);
-                  if (comp && comp.durationMinutes !== null) {
-                    const runDuration = comp.durationMinutes + (comp.changeoverMinutes || 0);
-                    if (runDuration > 0) {
-                      const capacity = step.batchSize * (1440 / runDuration);
-                      if (capacity < stepCapacity) {
-                        stepCapacity = capacity;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            // Fallback if not scheduled or no matching chamber found: use worst-case compatible chamber
-            if (stepCapacity === Infinity) {
-              const comps = partCompatibilities.filter(c => c.partNumberId === partId && c.durationMinutes !== null);
-              if (comps.length > 0) {
-                let maxDuration = 0;
-                for (const comp of comps) {
-                  const runDuration = comp.durationMinutes! + (comp.changeoverMinutes || 0);
-                  if (runDuration > maxDuration) {
-                    maxDuration = runDuration;
-                  }
-                }
-                if (maxDuration > 0) {
-                  stepCapacity = step.batchSize * (1440 / maxDuration);
-                }
-              }
-            }
+      // Binary search each part's rate independently (coordinate descent)
+      for (const partId of supplyDemandPartIds) {
+        let lo = 1;
+        let hi = solvedRates[partId];
+        let bestRate = hi;
+        
+        while (lo <= hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          const testRates = { ...solvedRates, [partId]: mid };
+          
+          if (isFeasible(testRates)) {
+            bestRate = mid;
+            hi = mid - 1;
           } else {
-            // Non-chamber step (e.g. Vibe)
-            const durMin = step.durationMinutes || 15;
-            if (durMin > 0) {
-              stepCapacity = step.batchSize * ((shifts * 480) / durMin);
-            }
-          }
-
-          if (stepCapacity < partBottleneckCapacity) {
-            partBottleneckCapacity = stepCapacity;
+            lo = mid + 1;
           }
         }
-
-        // If a valid capacity was found, round it up
-        if (partBottleneckCapacity !== Infinity) {
-          solvedRates[partId] = Math.ceil(partBottleneckCapacity);
-        } else {
-          // Fallback: total demand / project duration
-          const totalDemand = totalDemandPerPart[partId] || 1;
-          solvedRates[partId] = Math.ceil(totalDemand / Math.max(1, targetDays));
-        }
+        
+        solvedRates[partId] = bestRate;
       }
       
       // Set the final optimal supply rates
