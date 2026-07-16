@@ -1071,6 +1071,7 @@ export async function registerRoutes(
         const pendingBatches: PendingBatch[] = [];
         const batchCompletions: Record<number, Record<number, { endTime: Date; unitsCompleted: number }[]>> = {};
         const globalConsumed: Record<number, number> = {};
+        const orderStepImpliedCompleted = new Map<number, Map<number, number>>();
         
         for (const order of orders) {
           const part = partsMap.get(order.partNumberId);
@@ -1097,6 +1098,11 @@ export async function registerRoutes(
                 }
               }
             }
+
+            if (!orderStepImpliedCompleted.has(order.id)) {
+              orderStepImpliedCompleted.set(order.id, new Map<number, number>());
+            }
+            orderStepImpliedCompleted.get(order.id)!.set(step.id, impliedCompletedCount);
 
             if (impliedCompletedCount > 0) {
               batchCompletions[order.id][step.stepOrder].push({
@@ -1173,12 +1179,13 @@ export async function registerRoutes(
           if (prevStepCompletions.length === 0) return { time: new Date(8640000000000000), constrainingChildPartId: null };
           
           const currentStepBatchSize = batch.step.batchSize;
-          const unitsNeededForThisBatch = (batch.batchIndex + 1) * currentStepBatchSize;
+          const completedThisStep = orderStepImpliedCompleted.get(batch.orderId)?.get(batch.stepId) || 0;
+          const unitsNeededForThisBatch = completedThisStep + batch.batchIndex * currentStepBatchSize + batch.unitsInBatch;
           
           let unitsCompleted = 0;
           for (const completion of prevStepCompletions) {
             unitsCompleted += completion.unitsCompleted;
-            if (unitsCompleted >= Math.min(unitsNeededForThisBatch, batch.unitsInBatch + batch.batchIndex * currentStepBatchSize)) {
+            if (unitsCompleted >= unitsNeededForThisBatch) {
               return { time: completion.endTime, constrainingChildPartId: null };
             }
           }
@@ -1585,7 +1592,7 @@ export async function registerRoutes(
 
       // --- SIMULATION RUNS & CACHE CHECK ---
       // Compute cache key for optimal rates cache (optimal rates do not change unless shifts, workDays, or orders change)
-      const ordersKey = JSON.stringify(orders.map(o => ({ id: o.id, q: o.quantity, p: o.priority, d: o.dueDate })));
+      const ordersKey = JSON.stringify(orders.map(o => ({ id: o.id, q: o.quantity, p: o.priority, d: o.dueDate, offsets: o.stepOffsets })));
       const cacheKey = `${shifts}-${workDays}-${ordersKey}`;
       
       const optimalSupplyRates: Record<number, number> = {};
