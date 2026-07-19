@@ -82,6 +82,17 @@ export const partSupplyRules = pgTable("part_supply_rules", {
   fixedSupplies: text("fixed_supplies"),                      // JSON string of { date: string, quantity: number }[]
 });
 
+// Named scenario snapshots: save a full set of work orders + scheduler settings
+export const workOrderConfigurations = pgTable("work_order_configurations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  shiftMode: integer("shift_mode").notNull().default(1),
+  workDays: integer("work_days").notNull().default(5),
+  snapshot: text("snapshot").notNull(), // JSON blob: WorkOrder[] with embedded stepOffsets[]
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // === RELATIONS ===
 
 export const partNumbersRelations = relations(partNumbers, ({ many }) => ({
@@ -199,6 +210,10 @@ export type InsertPartDependency = z.infer<typeof insertPartDependencySchema>;
 export const insertPartSupplyRuleSchema = createInsertSchema(partSupplyRules).omit({ id: true });
 export type PartSupplyRule = typeof partSupplyRules.$inferSelect;
 export type InsertPartSupplyRule = z.infer<typeof insertPartSupplyRuleSchema>;
+
+export const insertWorkOrderConfigurationSchema = createInsertSchema(workOrderConfigurations).omit({ id: true, createdAt: true, updatedAt: true });
+export type WorkOrderConfiguration = typeof workOrderConfigurations.$inferSelect;
+export type InsertWorkOrderConfiguration = z.infer<typeof insertWorkOrderConfigurationSchema>;
 
 // Complex types including relations for the frontend
 export type TestStepWithEquipment = TestStep & { equipmentRequirements: (StepEquipment & { equipment: TestEquipment })[] };

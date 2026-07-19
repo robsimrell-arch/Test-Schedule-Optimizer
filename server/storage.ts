@@ -1,6 +1,6 @@
 import { db } from "./db";
 import {
-  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility, workOrderStepOffsets, partDependencies, partSupplyRules,
+  testEquipment, partNumbers, testSteps, stepEquipment, workOrders, partEquipmentCompatibility, workOrderStepOffsets, partDependencies, partSupplyRules, workOrderConfigurations,
   type TestEquipment, type InsertTestEquipment,
   type PartNumber, type InsertPartNumber,
   type TestStep, type InsertTestStep,
@@ -9,7 +9,8 @@ import {
   type InsertStepEquipment, type PartEquipmentCompatibility,
   type WorkOrderStepOffset, type InsertWorkOrderStepOffset,
   type PartDependency, type WorkOrderWithDetails,
-  type PartSupplyRule, type InsertPartSupplyRule
+  type PartSupplyRule, type InsertPartSupplyRule,
+  type WorkOrderConfiguration,
 } from "../shared/schema";
 import { eq, desc, and, notInArray } from "drizzle-orm";
 
@@ -59,6 +60,14 @@ export interface IStorage {
   getPartSupplyRules(): Promise<PartSupplyRule[]>;
   getPartSupplyRule(partNumberId: number): Promise<PartSupplyRule | undefined>;
   setPartSupplyRule(partNumberId: number, rule: Partial<InsertPartSupplyRule>): Promise<PartSupplyRule>;
+
+  // Work Order Configurations (named scenarios)
+  listConfigurations(): Promise<WorkOrderConfiguration[]>;
+  createConfiguration(name: string, shiftMode: number, workDays: number, snapshot: string): Promise<WorkOrderConfiguration>;
+  renameConfiguration(id: number, name: string): Promise<WorkOrderConfiguration | undefined>;
+  deleteConfiguration(id: number): Promise<void>;
+  getConfiguration(id: number): Promise<WorkOrderConfiguration | undefined>;
+  loadConfiguration(id: number): Promise<{ shiftMode: number; workDays: number } | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -405,6 +414,86 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return inserted;
     }
+  }
+
+  // ── Work Order Configurations ──────────────────────────────────────────────
+
+  async listConfigurations(): Promise<WorkOrderConfiguration[]> {
+    return await db.select().from(workOrderConfigurations).orderBy(desc(workOrderConfigurations.createdAt));
+  }
+
+  async createConfiguration(name: string, shiftMode: number, workDays: number, snapshot: string): Promise<WorkOrderConfiguration> {
+    const [row] = await db.insert(workOrderConfigurations)
+      .values({ name, shiftMode, workDays, snapshot })
+      .returning();
+    return row;
+  }
+
+  async renameConfiguration(id: number, name: string): Promise<WorkOrderConfiguration | undefined> {
+    const [row] = await db.update(workOrderConfigurations)
+      .set({ name, updatedAt: new Date() })
+      .where(eq(workOrderConfigurations.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteConfiguration(id: number): Promise<void> {
+    await db.delete(workOrderConfigurations).where(eq(workOrderConfigurations.id, id));
+  }
+
+  async getConfiguration(id: number): Promise<WorkOrderConfiguration | undefined> {
+    const [row] = await db.select().from(workOrderConfigurations).where(eq(workOrderConfigurations.id, id));
+    return row;
+  }
+
+  /**
+   * Loads a saved configuration by atomically replacing all active work orders
+   * with the snapshot in a single transaction. Returns shift/workDay settings
+   * for the frontend to apply to localStorage.
+   */
+  async loadConfiguration(id: number): Promise<{ shiftMode: number; workDays: number } | undefined> {
+    const config = await this.getConfiguration(id);
+    if (!config) return undefined;
+
+    const snapshotOrders: Array<{
+      workOrderNumber: string | null;
+      partNumberId: number;
+      quantity: number;
+      priority: number | null;
+      status: string;
+      dueDate: string | null;
+      stepOffsets?: { stepId: number; quantityCompleted: number }[];
+    }> = JSON.parse(config.snapshot);
+
+    await db.transaction(async (tx) => {
+      // Batch-delete all step offsets first, then all work orders — no per-row loops
+      await tx.delete(workOrderStepOffsets);
+      await tx.delete(workOrders);
+
+      // Re-insert each snapshot order, then batch-insert its step offsets
+      for (const o of snapshotOrders) {
+        const [inserted] = await tx.insert(workOrders).values({
+          workOrderNumber: o.workOrderNumber ?? null,
+          partNumberId: o.partNumberId,
+          quantity: o.quantity,
+          priority: o.priority ?? 1,
+          status: o.status ?? "pending",
+          dueDate: o.dueDate ? new Date(o.dueDate) : null,
+        }).returning();
+
+        if (o.stepOffsets && o.stepOffsets.length > 0) {
+          await tx.insert(workOrderStepOffsets).values(
+            o.stepOffsets.map((s) => ({
+              workOrderId: inserted.id,
+              stepId: s.stepId,
+              quantityCompleted: s.quantityCompleted,
+            }))
+          );
+        }
+      }
+    });
+
+    return { shiftMode: config.shiftMode, workDays: config.workDays };
   }
 }
 

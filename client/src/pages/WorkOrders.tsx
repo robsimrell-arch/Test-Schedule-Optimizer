@@ -1,12 +1,15 @@
 import React, { useState } from "react";
 import { Layout } from "@/components/Layout";
-import { useWorkOrders, useCreateWorkOrder, useUpdateWorkOrder, useDeleteWorkOrder, useParts } from "@/hooks/use-manufacturing";
+import { useWorkOrders, useCreateWorkOrder, useUpdateWorkOrder, useDeleteWorkOrder, useParts, useConfigurations, useSaveConfiguration, useRenameConfiguration, useDeleteConfiguration, useLoadConfiguration } from "@/hooks/use-manufacturing";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Calendar, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Calendar, AlertCircle, ChevronDown, ChevronRight, BookOpen, Save, FolderOpen, Pencil, Check, X } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 // ─── Inline Step Offsets Row ──────────────────────────────────────────────────
 
@@ -89,11 +92,25 @@ export default function WorkOrders() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [cyclingId, setCyclingId] = useState<number | null>(null);
   const [cyclingPriorityId, setCyclingPriorityId] = useState<number | null>(null);
+  const [configPanelOpen, setConfigPanelOpen] = useState(false);
+  const [newConfigName, setNewConfigName] = useState("");
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  // Load-configuration confirm dialog state
+  const [loadConfirmOpen, setLoadConfirmOpen] = useState(false);
+  const [pendingLoadId, setPendingLoadId] = useState<number | null>(null);
+  const [pendingSaveName, setPendingSaveName] = useState("");
+
   const { data: orders, isLoading } = useWorkOrders();
   const { data: parts } = useParts();
+  const { data: configurations = [] } = useConfigurations();
   const deleteOrder = useDeleteWorkOrder();
   const updateOrder = useUpdateWorkOrder();
   const createOrder = useCreateWorkOrder();
+  const saveConfiguration = useSaveConfiguration();
+  const renameConfiguration = useRenameConfiguration();
+  const deleteConfiguration = useDeleteConfiguration();
+  const loadConfiguration = useLoadConfiguration();
 
   // Generate a WO number like WO-2026-0042
   const nextWONumber = () => {
@@ -156,6 +173,65 @@ export default function WorkOrders() {
 
   const getDisplayId = (order: any) =>
     order.workOrderNumber || `WO-${order.id.toString().padStart(4, "0")}`;
+
+  const handleSaveConfiguration = () => {
+    if (!newConfigName.trim()) return;
+    const shiftMode = Number(localStorage.getItem("ts-optimizer-shiftMode") || "1");
+    const workDays = Number(localStorage.getItem("ts-optimizer-workDays") || "5");
+    const snapshot = JSON.stringify(
+      (orders || []).map((o: any) => ({
+        workOrderNumber: o.workOrderNumber ?? null,
+        partNumberId: o.partNumberId,
+        quantity: o.quantity,
+        priority: o.priority,
+        status: o.status,
+        dueDate: o.dueDate ? new Date(o.dueDate).toISOString() : null,
+        stepOffsets: (o.stepOffsets || []).map((s: any) => ({ stepId: s.stepId, quantityCompleted: s.quantityCompleted })),
+      }))
+    );
+    saveConfiguration.mutate({ name: newConfigName.trim(), shiftMode, workDays, snapshot }, {
+      onSuccess: () => setNewConfigName(""),
+    });
+  };
+
+  const handleLoadConfiguration = (id: number) => {
+    if ((orders || []).length > 0) {
+      // Open the custom Yes/No dialog
+      setPendingLoadId(id);
+      setPendingSaveName("");
+      setLoadConfirmOpen(true);
+    } else {
+      loadConfiguration.mutate(id);
+    }
+  };
+
+  const confirmLoad = (saveFirst: boolean) => {
+    setLoadConfirmOpen(false);
+    if (!pendingLoadId) return;
+    const id = pendingLoadId;
+    setPendingLoadId(null);
+
+    if (saveFirst && pendingSaveName.trim()) {
+      const shiftMode = Number(localStorage.getItem("ts-optimizer-shiftMode") || "1");
+      const workDays = Number(localStorage.getItem("ts-optimizer-workDays") || "5");
+      const snapshot = JSON.stringify(
+        (orders || []).map((o: any) => ({
+          workOrderNumber: o.workOrderNumber ?? null,
+          partNumberId: o.partNumberId,
+          quantity: o.quantity,
+          priority: o.priority,
+          status: o.status,
+          dueDate: o.dueDate ? new Date(o.dueDate).toISOString() : null,
+          stepOffsets: (o.stepOffsets || []).map((s: any) => ({ stepId: s.stepId, quantityCompleted: s.quantityCompleted })),
+        }))
+      );
+      saveConfiguration.mutate({ name: pendingSaveName.trim(), shiftMode, workDays, snapshot }, {
+        onSuccess: () => loadConfiguration.mutate(id),
+      });
+    } else {
+      loadConfiguration.mutate(id);
+    }
+  };
 
   const COL_SPAN = 8;
 
@@ -400,6 +476,146 @@ export default function WorkOrders() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Configurations Panel ──────────────────────────────────────────── */}
+      <Collapsible open={configPanelOpen} onOpenChange={setConfigPanelOpen}>
+        <Card className="border-border/60 shadow-sm">
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <BookOpen className="w-5 h-5 text-primary" />
+                  <div>
+                    <CardTitle className="text-base">Saved Configurations</CardTitle>
+                    <CardDescription className="text-xs mt-0.5">Save and recall named work order scenarios</CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {configurations.length > 0 && (
+                    <Badge variant="outline" className="text-xs">{configurations.length} saved</Badge>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${configPanelOpen ? "rotate-180" : ""}`} />
+                </div>
+              </div>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0 space-y-5">
+
+              {/* Save current */}
+              <div className="flex items-center gap-3 pt-1">
+                <Input
+                  placeholder="Configuration name…"
+                  value={newConfigName}
+                  onChange={e => setNewConfigName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleSaveConfiguration()}
+                  className="h-8 text-sm max-w-xs"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSaveConfiguration}
+                  disabled={!newConfigName.trim() || saveConfiguration.isPending}
+                  className="flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  Save Current
+                </Button>
+              </div>
+
+              {/* Saved list */}
+              {configurations.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No saved configurations yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {configurations.map((cfg: any) => (
+                    <div key={cfg.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
+                      {renamingId === cfg.id ? (
+                        // Rename mode
+                        <>
+                          <Input
+                            autoFocus
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") {
+                                renameConfiguration.mutate({ id: cfg.id, name: renameValue }, { onSuccess: () => setRenamingId(null) });
+                              }
+                              if (e.key === "Escape") setRenamingId(null);
+                            }}
+                            className="h-7 text-sm flex-1"
+                          />
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-green-600" onClick={() =>
+                            renameConfiguration.mutate({ id: cfg.id, name: renameValue }, { onSuccess: () => setRenamingId(null) })
+                          }>
+                            <Check className="w-4 h-4" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => setRenamingId(null)}>
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </>
+                      ) : (
+                        // Display mode
+                        <>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold truncate">{cfg.name}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {cfg.shiftMode} shift{cfg.shiftMode > 1 ? "s" : ""} · {cfg.workDays} day{cfg.workDays > 1 ? "s" : ""}/wk
+                              {" · "}{new Date(cfg.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <Button size="sm" variant="outline" className="h-7 text-xs flex items-center gap-1"
+                            onClick={() => handleLoadConfiguration(cfg.id)}
+                            disabled={loadConfiguration.isPending}
+                          >
+                            <FolderOpen className="w-3.5 h-3.5" />
+                            Load
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                            onClick={() => { setRenamingId(cfg.id); setRenameValue(cfg.name); }}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-red-500"
+                            onClick={() => { if (confirm(`Delete "${cfg.name}"?`)) deleteConfiguration.mutate(cfg.id); }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+      {/* ── Load Configuration Confirm Dialog ─────────────────────────────── */}
+      <AlertDialog open={loadConfirmOpen} onOpenChange={setLoadConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Load Configuration</AlertDialogTitle>
+            <AlertDialogDescription>
+              Do you want to save your current work orders before loading the saved configuration?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="px-1 pb-2">
+            <Input
+              placeholder="Name for current configuration (optional)"
+              value={pendingSaveName}
+              onChange={e => setPendingSaveName(e.target.value)}
+              className="h-8 text-sm"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => confirmLoad(false)}>No</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmLoad(true)} disabled={!pendingSaveName.trim()}>
+              Yes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Layout>
   );
 }

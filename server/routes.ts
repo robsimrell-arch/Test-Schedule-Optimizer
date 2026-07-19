@@ -2021,5 +2021,68 @@ export async function registerRoutes(
     }
   });
 
+  // === WORK ORDER CONFIGURATIONS (named scenarios) ===
+
+  // GET /api/configurations — list all saved configurations
+  app.get(api.configurations.list.path, async (_req, res) => {
+    try {
+      const configs = await storage.listConfigurations();
+      res.json(configs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/configurations — save current work orders + settings as a new named configuration
+  app.post(api.configurations.create.path, async (req, res) => {
+    try {
+      const { name, shiftMode, workDays, snapshot } = req.body;
+      if (!name || !snapshot) return res.status(400).json({ message: "name and snapshot are required" });
+      const config = await storage.createConfiguration(name, shiftMode ?? 1, workDays ?? 5, snapshot);
+      res.status(201).json(config);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/configurations/:id — rename a saved configuration
+  app.patch("/api/configurations/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { name } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const updated = await storage.renameConfiguration(id, name);
+      if (!updated) return res.status(404).json({ message: "Configuration not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/configurations/:id — delete a saved configuration
+  app.delete("/api/configurations/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getConfiguration(id);
+      if (!existing) return res.status(404).json({ message: "Configuration not found" });
+      await storage.deleteConfiguration(id);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/configurations/:id/load — replace live work orders with a saved configuration
+  app.post("/api/configurations/:id/load", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const result = await storage.loadConfiguration(id);
+      if (!result) return res.status(404).json({ message: "Configuration not found" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

@@ -248,6 +248,40 @@ export const api = {
       },
     },
   },
+  configurations: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/configurations',
+      responses: { 200: z.array(z.any()) },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/configurations',
+      input: z.object({
+        name: z.string(),
+        shiftMode: z.number(),
+        workDays: z.number(),
+        snapshot: z.string(),
+      }),
+      responses: { 201: z.any() },
+    },
+    rename: {
+      method: 'PATCH' as const,
+      path: '/api/configurations/:id',
+      input: z.object({ name: z.string() }),
+      responses: { 200: z.any(), 404: errorSchemas.notFound },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/configurations/:id',
+      responses: { 204: z.void(), 404: errorSchemas.notFound },
+    },
+    load: {
+      method: 'POST' as const,
+      path: '/api/configurations/:id/load',
+      responses: { 200: z.object({ shiftMode: z.number(), workDays: z.number() }), 404: errorSchemas.notFound },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {

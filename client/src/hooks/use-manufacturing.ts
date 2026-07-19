@@ -484,3 +484,110 @@ export function useSavePartSupplyRule() {
     },
   });
 }
+
+// ============================================
+// WORK ORDER CONFIGURATIONS (SCENARIOS) HOOKS
+// ============================================
+
+export function useConfigurations() {
+  return useQuery({
+    queryKey: [api.configurations.list.path],
+    queryFn: async () => {
+      const res = await fetch(api.configurations.list.path);
+      if (!res.ok) throw new Error("Failed to fetch configurations");
+      return res.json() as Promise<any[]>;
+    },
+  });
+}
+
+export function useSaveConfiguration() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (data: { name: string; shiftMode: number; workDays: number; snapshot: string }) => {
+      const res = await fetch(api.configurations.create.path, {
+        method: api.configurations.create.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to save configuration");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.configurations.list.path] });
+      toast({ title: "Configuration saved", description: "Scenario saved successfully" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useRenameConfiguration() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: number; name: string }) => {
+      const res = await fetch(`/api/configurations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error("Failed to rename configuration");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.configurations.list.path] });
+      toast({ title: "Renamed", description: "Configuration renamed" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useDeleteConfiguration() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/configurations/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete configuration");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.configurations.list.path] });
+      toast({ title: "Deleted", description: "Configuration deleted" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useLoadConfiguration() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (id: number): Promise<{ shiftMode: number; workDays: number }> => {
+      const res = await fetch(`/api/configurations/${id}/load`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to load configuration");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      // Update localStorage so Dashboard picks up new shift/workDay settings
+      localStorage.setItem("ts-optimizer-shiftMode", String(data.shiftMode));
+      localStorage.setItem("ts-optimizer-workDays", String(data.workDays));
+      // Invalidate work orders + schedule so everything re-fetches
+      queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Configuration loaded", description: "Work orders replaced with saved scenario" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+}
