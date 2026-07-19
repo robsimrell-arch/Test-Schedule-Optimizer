@@ -143,7 +143,7 @@ export default function Dashboard() {
     const saved = localStorage.getItem("ts-optimizer-workDays");
     return saved ? (Number(saved) as 5 | 6 | 7) : 5;
   });
-  const { data: schedule, isLoading, isError } = useSchedule(shiftMode, workDays);
+  const { data: schedule, isLoading, isFetching, isError } = useSchedule(shiftMode, workDays);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     const saved = localStorage.getItem("ts-optimizer-viewMode");
     return saved && Object.values(ViewMode).includes(saved as ViewMode) 
@@ -376,10 +376,10 @@ export default function Dashboard() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isFetching) {
     return (
       <Layout>
-        <ProgressiveLoader />
+        <ProgressiveLoader key={isFetching ? "refetch" : "initial"} />
       </Layout>
     );
   }
