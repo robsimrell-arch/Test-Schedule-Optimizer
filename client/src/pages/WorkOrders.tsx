@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Layout } from "@/components/Layout";
+import { ActiveConfigBadge } from "@/components/ActiveConfigBadge";
 import { useWorkOrders, useCreateWorkOrder, useUpdateWorkOrder, useDeleteWorkOrder, useParts, useConfigurations, useSaveConfiguration, useRenameConfiguration, useDeleteConfiguration, useLoadConfiguration } from "@/hooks/use-manufacturing";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -239,7 +240,10 @@ export default function WorkOrders() {
     <Layout>
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Work Orders</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Work Orders</h1>
+            <ActiveConfigBadge />
+          </div>
           <p className="text-muted-foreground mt-2">Create and manage production batches.</p>
         </div>
         <Button size="lg" className="shadow-lg shadow-primary/20" onClick={createDraft} disabled={!!draft}>

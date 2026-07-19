@@ -67,7 +67,7 @@ export interface IStorage {
   renameConfiguration(id: number, name: string): Promise<WorkOrderConfiguration | undefined>;
   deleteConfiguration(id: number): Promise<void>;
   getConfiguration(id: number): Promise<WorkOrderConfiguration | undefined>;
-  loadConfiguration(id: number): Promise<{ shiftMode: number; workDays: number } | undefined>;
+  loadConfiguration(id: number): Promise<{ shiftMode: number; workDays: number; name: string } | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -451,7 +451,7 @@ export class DatabaseStorage implements IStorage {
    * with the snapshot in a single transaction. Returns shift/workDay settings
    * for the frontend to apply to localStorage.
    */
-  async loadConfiguration(id: number): Promise<{ shiftMode: number; workDays: number } | undefined> {
+  async loadConfiguration(id: number): Promise<{ shiftMode: number; workDays: number; name: string } | undefined> {
     const config = await this.getConfiguration(id);
     if (!config) return undefined;
 
@@ -493,7 +493,7 @@ export class DatabaseStorage implements IStorage {
       }
     });
 
-    return { shiftMode: config.shiftMode, workDays: config.workDays };
+    return { shiftMode: config.shiftMode, workDays: config.workDays, name: config.name };
   }
 }
 

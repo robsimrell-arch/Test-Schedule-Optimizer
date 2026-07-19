@@ -273,6 +273,10 @@ export function useCreateWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
       queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      if (localStorage.getItem("ts-optimizer-activeConfigName")) {
+        localStorage.setItem("ts-optimizer-isModified", "true");
+        window.dispatchEvent(new Event("ts-optimizer-config-changed"));
+      }
       toast({ title: "Success", description: "Work order created" });
     },
   });
@@ -295,6 +299,10 @@ export function useUpdateWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
       queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      if (localStorage.getItem("ts-optimizer-activeConfigName")) {
+        localStorage.setItem("ts-optimizer-isModified", "true");
+        window.dispatchEvent(new Event("ts-optimizer-config-changed"));
+      }
       toast({ title: "Success", description: "Work order updated" });
     },
   });
@@ -313,6 +321,10 @@ export function useDeleteWorkOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
       queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      if (localStorage.getItem("ts-optimizer-activeConfigName")) {
+        localStorage.setItem("ts-optimizer-isModified", "true");
+        window.dispatchEvent(new Event("ts-optimizer-config-changed"));
+      }
       toast({ title: "Success", description: "Work order deleted" });
     },
   });
@@ -514,8 +526,11 @@ export function useSaveConfiguration() {
       if (!res.ok) throw new Error("Failed to save configuration");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: [api.configurations.list.path] });
+      localStorage.setItem("ts-optimizer-activeConfigName", variables.name);
+      localStorage.setItem("ts-optimizer-isModified", "false");
+      window.dispatchEvent(new Event("ts-optimizer-config-changed"));
       toast({ title: "Configuration saved", description: "Scenario saved successfully" });
     },
     onError: (err: Error) => {
@@ -538,8 +553,13 @@ export function useRenameConfiguration() {
       if (!res.ok) throw new Error("Failed to rename configuration");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [api.configurations.list.path] });
+      const currentName = localStorage.getItem("ts-optimizer-activeConfigName");
+      if (currentName && data?.name && currentName !== data.name) {
+        localStorage.setItem("ts-optimizer-activeConfigName", data.name);
+        window.dispatchEvent(new Event("ts-optimizer-config-changed"));
+      }
       toast({ title: "Renamed", description: "Configuration renamed" });
     },
     onError: (err: Error) => {
@@ -572,19 +592,22 @@ export function useLoadConfiguration() {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async (id: number): Promise<{ shiftMode: number; workDays: number }> => {
+    mutationFn: async (id: number): Promise<{ shiftMode: number; workDays: number; name: string }> => {
       const res = await fetch(`/api/configurations/${id}/load`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to load configuration");
       return res.json();
     },
     onSuccess: (data) => {
-      // Update localStorage so Dashboard picks up new shift/workDay settings
+      // Update localStorage so Dashboard picks up new shift/workDay settings and active config name
       localStorage.setItem("ts-optimizer-shiftMode", String(data.shiftMode));
       localStorage.setItem("ts-optimizer-workDays", String(data.workDays));
+      localStorage.setItem("ts-optimizer-activeConfigName", data.name);
+      localStorage.setItem("ts-optimizer-isModified", "false");
+      window.dispatchEvent(new Event("ts-optimizer-config-changed"));
       // Invalidate work orders + schedule so everything re-fetches
       queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
       queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
-      toast({ title: "Configuration loaded", description: "Work orders replaced with saved scenario" });
+      toast({ title: "Configuration loaded", description: `Loaded "${data.name}"` });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });

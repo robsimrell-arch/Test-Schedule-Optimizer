@@ -279,7 +279,7 @@ export const api = {
     load: {
       method: 'POST' as const,
       path: '/api/configurations/:id/load',
-      responses: { 200: z.object({ shiftMode: z.number(), workDays: z.number() }), 404: errorSchemas.notFound },
+      responses: { 200: z.object({ shiftMode: z.number(), workDays: z.number(), name: z.string() }), 404: errorSchemas.notFound },
     },
   },
 };

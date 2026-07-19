@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Layout } from "@/components/Layout";
+import { ActiveConfigBadge } from "@/components/ActiveConfigBadge";
 import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
@@ -508,7 +509,10 @@ export default function Dashboard() {
       <style>{ganttStyles}</style>
       <div className="space-y-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Production Schedule</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Production Schedule</h1>
+            <ActiveConfigBadge />
+          </div>
           <p className="text-muted-foreground mt-2">
             Optimized timeline based on equipment availability and order priority.
           </p>
