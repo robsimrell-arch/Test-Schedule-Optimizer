@@ -1646,8 +1646,7 @@ export async function registerRoutes(
         for (const partIdStr of Object.keys(compatibilityMap)) {
           const partId = Number(partIdStr);
           const chamberCompats = compatibilityMap[partId];
-          const partName = partsMap.get(partId)?.partNumber || '';
-          if (chamberCompats && chamberCompats.length > 1 && partName.includes('LRU')) {
+          if (chamberCompats && chamberCompats.length > 1) {
             partsWithMultipleChambers.push(partId);
           }
         }
@@ -1672,9 +1671,18 @@ export async function registerRoutes(
         }
 
         function evaluateAllCandidatesPruning(): { bestScore: number; bestDays: number; bestCand: typeof candidates[0] } {
-          const cand = candidates[0];
-          const res = evaluateSingleCandidatePruning(cand);
-          return { bestScore: res.score, bestDays: res.days, bestCand: cand };
+          let bestScore = Infinity;
+          let bestDays = Infinity;
+          let bestCand = candidates[0];
+          for (const cand of candidates) {
+            const res = evaluateSingleCandidatePruning(cand);
+            if (res.score < bestScore) {
+              bestScore = res.score;
+              bestDays = res.days;
+              bestCand = cand;
+            }
+          }
+          return { bestScore, bestDays, bestCand };
         }
 
         if (partsWithMultipleChambers.length > 0) {
