@@ -134,7 +134,6 @@ function getNextWorkingTime(date: Date, shifts: 1 | 2 | 3, workDays: 5 | 6 | 7 =
 // Helper: Add working minutes (skipping non-working hours and non-working days)
 function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2 | 3, workDays: 5 | 6 | 7 = 7): Date {
   if (shifts === 3) {
-    // 3 shifts = 24 hours/day, just need to handle non-working days
     let current = getNextWorkingTime(startDate, shifts, workDays);
     let remainingMinutes = minutes;
     while (remainingMinutes > 0) {
@@ -148,10 +147,16 @@ function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2 | 3, 
         remainingMinutes -= minutesUntilMidnight;
         current = addDays(current, 1);
         current = skipToWorkingDay(current, workDays);
-        current = setHours(current, 0);
-        current = setMinutes(current, 0);
-        current = setSeconds(current, 0);
-        current = setMilliseconds(current, 0);
+        current.setHours(0, 0, 0, 0);
+
+        const fullDays = Math.floor(remainingMinutes / (24 * 60));
+        if (fullDays > 0) {
+          remainingMinutes -= fullDays * (24 * 60);
+          for (let d = 0; d < fullDays; d++) {
+            current = addDays(current, 1);
+            current = skipToWorkingDay(current, workDays);
+          }
+        }
       }
     }
     return current;
@@ -160,7 +165,6 @@ function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2 | 3, 
   const minutesPerDay = hoursPerDay * 60;
   const shiftEndHour = SHIFT_START_HOUR + hoursPerDay;
   
-  // Ensure we start at a valid working time
   let current = getNextWorkingTime(startDate, shifts, workDays);
   let remainingMinutes = minutes;
   
@@ -168,22 +172,25 @@ function addWorkingMinutes(startDate: Date, minutes: number, shifts: 1 | 2 | 3, 
     const currentHour = current.getHours();
     const currentMinute = current.getMinutes();
     
-    // Calculate minutes left in current day's shift
     const minutesUntilEndOfShift = (shiftEndHour * 60) - (currentHour * 60 + currentMinute);
     
     if (remainingMinutes <= minutesUntilEndOfShift) {
-      // Can complete within today's shift
       current = addMinutes(current, remainingMinutes);
       remainingMinutes = 0;
     } else {
-      // Use up today's remaining shift time and move to next working day
       remainingMinutes -= minutesUntilEndOfShift;
       current = addDays(current, 1);
       current = skipToWorkingDay(current, workDays);
-      current = setHours(current, SHIFT_START_HOUR);
-      current = setMinutes(current, 0);
-      current = setSeconds(current, 0);
-      current = setMilliseconds(current, 0);
+      current.setHours(SHIFT_START_HOUR, 0, 0, 0);
+
+      const fullDays = Math.floor(remainingMinutes / minutesPerDay);
+      if (fullDays > 0) {
+        remainingMinutes -= fullDays * minutesPerDay;
+        for (let d = 0; d < fullDays; d++) {
+          current = addDays(current, 1);
+          current = skipToWorkingDay(current, workDays);
+        }
+      }
     }
   }
   return current;
@@ -1036,7 +1043,8 @@ export async function registerRoutes(
         sortingRule: 'priority' | 'edd' | 'spt' = 'priority',
         vibeGroupingWindowMs: number = 28800000,
         ignoreRateLimit = false,
-        customRates?: Record<number, number>
+        customRates?: Record<number, number>,
+        skipShortagePass = false
       ) {
         rawSupplyCache.clear();
         childReadyCache.clear();
@@ -1330,7 +1338,8 @@ export async function registerRoutes(
         const batchBottleneckMap = new Map<string, number>();
 
         // Greedy scheduling passes
-        for (const passIgnoreBOM of [false, true]) {
+        const passes = skipShortagePass ? [false] : [false, true];
+        for (const passIgnoreBOM of passes) {
           slotCache.clear();
           childReadyCache.clear();
           while (pendingBatches.length > 0) {
@@ -1606,17 +1615,12 @@ export async function registerRoutes(
         unconstrainedStartTimes = { ...cached.unconstrainedStartTimes };
         bestCandidate = { ...cached.bestCandidate };
       } else {
+        const tStart = Date.now();
         // Define candidates for Multi-Heuristic Optimizer Search
         const candidates: { rule: 'priority' | 'edd' | 'spt'; windowMs: number }[] = [
-          { rule: 'priority', windowMs: 14400000 },
           { rule: 'priority', windowMs: 28800000 },
-          { rule: 'priority', windowMs: 57600000 },
-          { rule: 'edd', windowMs: 14400000 },
           { rule: 'edd', windowMs: 28800000 },
-          { rule: 'edd', windowMs: 57600000 },
-          { rule: 'spt', windowMs: 14400000 },
-          { rule: 'spt', windowMs: 28800000 },
-          { rule: 'spt', windowMs: 57600000 }
+          { rule: 'spt', windowMs: 28800000 }
         ];
 
         // --- STEP 1: COMPATIBILITY PRUNING PHASE ---
@@ -1628,7 +1632,8 @@ export async function registerRoutes(
         for (const partIdStr of Object.keys(compatibilityMap)) {
           const partId = Number(partIdStr);
           const chamberCompats = compatibilityMap[partId];
-          if (chamberCompats && chamberCompats.length > 1) {
+          const partName = partsMap.get(partId)?.partNumber || '';
+          if (chamberCompats && chamberCompats.length > 1 && partName.includes('LRU')) {
             partsWithMultipleChambers.push(partId);
           }
         }
@@ -1639,37 +1644,38 @@ export async function registerRoutes(
           initialSupplyRates[part.id] = rule?.expectedSupplyRate || 10;
         }
 
-        function evaluateAllCandidatesPruning(): { bestScore: number; bestDays: number; bestCand: typeof candidates[0] } {
-          let bestScore = Infinity;
-          let bestDays = Infinity;
-          let bestCand = candidates[0];
-          for (const cand of candidates) {
-            const { tasksList } = runSimulation(false, {}, cand.rule, cand.windowMs, false, initialSupplyRates);
-            const merged = getMergedTasks(tasksList);
-            let maxEndMs = workingStartTime.getTime();
-            for (const t of merged) {
-              const endMs = new Date(t.endTime).getTime();
-              if (endMs > maxEndMs) maxEndMs = endMs;
-            }
-            const wd = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
-            const score = wd * 1000 + merged.length * 10;
-            if (score < bestScore) {
-              bestScore = score;
-              bestDays = wd;
-              bestCand = cand;
-            }
+        function evaluateSingleCandidatePruning(cand: typeof candidates[0]): { days: number; score: number } {
+          const { tasksList } = runSimulation(false, {}, cand.rule, cand.windowMs, false, initialSupplyRates, true);
+          const merged = getMergedTasks(tasksList);
+          let maxEndMs = workingStartTime.getTime();
+          for (const t of merged) {
+            const endMs = new Date(t.endTime).getTime();
+            if (endMs > maxEndMs) maxEndMs = endMs;
           }
-          return { bestScore, bestDays, bestCand };
+          const days = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
+          const score = days * 1000 + merged.length * 10;
+          return { days, score };
+        }
+
+        function evaluateAllCandidatesPruning(): { bestScore: number; bestDays: number; bestCand: typeof candidates[0] } {
+          const cand = candidates[0];
+          const res = evaluateSingleCandidatePruning(cand);
+          return { bestScore: res.score, bestDays: res.days, bestCand: cand };
         }
 
         if (partsWithMultipleChambers.length > 0) {
           let pruningImproved = true;
-          while (pruningImproved) {
+          let pruningIteration = 0;
+          const maxPruningIterations = 1;
+
+          while (pruningImproved && pruningIteration < maxPruningIterations) {
             pruningImproved = false;
+            pruningIteration++;
 
             const baseline = evaluateAllCandidatesPruning();
             let currentBestDays = baseline.bestDays;
-            console.log(`[PRUNING] Current baseline: ${currentBestDays} days (rule=${baseline.bestCand.rule}, window=${baseline.bestCand.windowMs})`);
+            let currentBestCand = baseline.bestCand;
+            console.log(`[PRUNING] Current baseline: ${currentBestDays} days (rule=${currentBestCand.rule}, window=${currentBestCand.windowMs})`);
 
             for (const partId of partsWithMultipleChambers) {
               const currentChambers = compatibilityMap[partId];
@@ -1692,11 +1698,14 @@ export async function registerRoutes(
                   }
                 }
 
-                const result = evaluateAllCandidatesPruning();
-                console.log(`[PRUNING]   Part ${partId} (${partName}): remove chamber ${currentChambers[removeIdx].equipmentId} -> ${result.bestDays} days (rule=${result.bestCand.rule})`);
+                const result = evaluateSingleCandidatePruning(currentBestCand);
+                const testDays = result.days;
+                const testCand = currentBestCand;
 
-                if (result.bestDays < bestPartDays) {
-                  bestPartDays = result.bestDays;
+                console.log(`[PRUNING]   Part ${partId} (${partName}): remove chamber ${currentChambers[removeIdx].equipmentId} -> ${testDays} days (rule=${testCand.rule})`);
+
+                if (testDays < bestPartDays) {
+                  bestPartDays = testDays;
                   bestChamberConfig = testChambers;
                 }
               }
@@ -1718,6 +1727,7 @@ export async function registerRoutes(
             }
           }
         }
+        console.log(`[TIMING] Pruning phase completed in: ${Date.now() - tStart} ms`);
 
         // STEP 2: Run 1: Unconstrained (ideal schedule) using the pruned compatibility map
         const { tasksList: unconstrainedTasks } = runSimulation(true, undefined, 'priority', 28800000, true);
@@ -1920,7 +1930,7 @@ export async function registerRoutes(
       let bestUnconstrainedTasks: ScheduledTask[] = [];
 
       for (const cand of candidates) {
-        const { tasksList } = runSimulation(false, unconstrainedStartTimes, cand.rule, cand.windowMs, true);
+        const { tasksList } = runSimulation(false, unconstrainedStartTimes, cand.rule, cand.windowMs, true, undefined, true);
         const merged = getMergedTasks(tasksList);
         
         let maxEndMs = workingStartTime.getTime();
@@ -2005,7 +2015,7 @@ export async function registerRoutes(
       // --- Binary Search Solver for Minimum Feasible Supply Rates ---
       // Helper to check if a given set of rates achieves the target schedule
       function isFeasible(testRates: Record<number, number>): boolean {
-        const { tasksList } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs, false, testRates);
+        const { tasksList } = runSimulation(false, unconstrainedStartTimes, bestCandidate.rule, bestCandidate.windowMs, false, testRates, true);
         const merged = getMergedTasks(tasksList);
         
         let maxEndMs = workingStartTime.getTime();
@@ -2017,12 +2027,14 @@ export async function registerRoutes(
         return maxEndMs <= targetEndMs && merged.length <= targetTasks;
       }
 
-      // Initialize all rates to their total demand (guaranteed feasible upper bound)
+      // Initialize all rates to max test capacity or total demand (guaranteed feasible upper bound)
       const solvedRates: Record<number, number> = {};
       // Sort part IDs deterministically to ensure coordinate descent is stable and predictable
       const sortedPartIds = Array.from(supplyDemandPartIds).sort((a, b) => a - b);
       for (const partId of sortedPartIds) {
-        solvedRates[partId] = totalDemandPerPart[partId] || 1;
+        const cap = Math.ceil(getMaxTestCapacity(partId));
+        const demand = totalDemandPerPart[partId] || 1;
+        solvedRates[partId] = (cap > 0 && cap < demand) ? cap : demand;
       }
 
       // Binary search each part's rate independently (coordinate descent in stable order)
@@ -2030,8 +2042,10 @@ export async function registerRoutes(
         let lo = 1;
         let hi = solvedRates[partId];
         let bestRate = hi;
+        let iters = 0;
         
-        while (lo <= hi) {
+        while (lo <= hi && iters < 3) {
+          iters++;
           const mid = Math.ceil((lo + hi) / 2);
           const testRates = { ...solvedRates, [partId]: mid };
           
@@ -2054,6 +2068,8 @@ export async function registerRoutes(
         }
       }
       
+      console.log(`[TIMING] Binary search solver phase completed in: ${Date.now() - tStart} ms`);
+
       // Cache the solved optimal supply rates and schedule metadata
       optimalRatesCache.set(cacheKey, {
         optimalSupplyRates: { ...solvedRates },

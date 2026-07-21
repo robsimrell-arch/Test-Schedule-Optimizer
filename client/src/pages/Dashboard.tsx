@@ -53,23 +53,28 @@ import { useParts, useAllPartDependencies, useSavePartSupplyRule, useWorkOrders 
 function ProgressiveLoader() {
   const [progress, setProgress] = useState(0);
   const [stepIndex, setStepIndex] = useState(0);
+  const [etaSeconds, setEtaSeconds] = useState(3);
 
   const steps = [
     { threshold: 15, text: "Initializing factory simulation parameters..." },
     { threshold: 35, text: "Querying order backlog & equipment inventory..." },
-    { threshold: 55, text: "Simulating unconstrained baseline schedule..." },
+    { threshold: 55, text: "Optimizing bottleneck equipment compatibilities..." },
     { threshold: 75, text: "Solving optimal bottleneck supply rates..." },
     { threshold: 90, text: "Resolving part shortages and dependencies..." },
-    { threshold: 97, text: "Generating final production timeline..." },
+    { threshold: 98, text: "Generating final production timeline..." },
     { threshold: 100, text: "Rendering Gantt chart..." }
   ];
 
   useEffect(() => {
     const start = Date.now();
+    const targetDurationMs = 2500;
     const interval = setInterval(() => {
       const elapsed = Date.now() - start;
-      const val = Math.min(98, Math.round(98 * (1 - Math.exp(-elapsed / 4500))));
+      const val = Math.min(99, Math.round(99 * (1 - Math.exp(-elapsed / 1000))));
       setProgress(val);
+
+      const remainingSec = Math.max(1, Math.ceil((targetDurationMs - elapsed) / 1000));
+      setEtaSeconds(val >= 98 ? 1 : remainingSec);
       
       const activeStepIdx = steps.findIndex(s => val < s.threshold);
       if (activeStepIdx !== -1) {
@@ -77,7 +82,7 @@ function ProgressiveLoader() {
       } else {
         setStepIndex(steps.length - 1);
       }
-    }, 150);
+    }, 100);
     
     return () => clearInterval(interval);
   }, []);
@@ -95,7 +100,7 @@ function ProgressiveLoader() {
         <Progress value={progress} className="h-2 bg-secondary" />
         <div className="flex justify-between text-xs text-muted-foreground font-mono">
           <span>{progress}%</span>
-          <span>ETA: ~10s</span>
+          <span>{progress >= 98 ? "ETA: ~1s" : `ETA: ~${etaSeconds}s`}</span>
         </div>
       </div>
       
