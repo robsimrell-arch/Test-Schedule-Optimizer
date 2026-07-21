@@ -708,7 +708,7 @@ export async function registerRoutes(
       }
 
       // Build compatibility lookup (includes changeover time)
-      const compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[]> = {};
+      let compatibilityMap: Record<number, { equipmentId: number; durationMinutes: number | null; changeoverMinutes: number | null }[]> = {};
       for (const c of allCompatibility) {
         if (!compatibilityMap[c.partNumberId]) {
           compatibilityMap[c.partNumberId] = [];
@@ -721,7 +721,7 @@ export async function registerRoutes(
       }
       
       // Build changeover lookup: partNumberId -> equipmentId -> changeoverMinutes
-      const changeoverMap: Record<number, Record<number, number>> = {};
+      let changeoverMap: Record<number, Record<number, number>> = {};
       for (const c of allCompatibility) {
         if (c.changeoverMinutes && c.changeoverMinutes > 0) {
           if (!changeoverMap[c.partNumberId]) {
@@ -1591,9 +1591,10 @@ export async function registerRoutes(
       }
 
       // --- SIMULATION RUNS & CACHE CHECK ---
-      // Compute cache key for optimal rates cache (optimal rates do not change unless shifts, workDays, or orders change)
+      // Compute cache key for optimal rates cache (optimal rates do not change unless shifts, workDays, orders, or compatibility change)
       const ordersKey = JSON.stringify(orders.map(o => ({ id: o.id, q: o.quantity, p: o.priority, d: o.dueDate, offsets: o.stepOffsets })));
-      const cacheKey = `${shifts}-${workDays}-${ordersKey}`;
+      const compatKey = JSON.stringify(allCompatibility.map(c => ({ p: c.partNumberId, e: c.equipmentId, d: c.durationMinutes, co: c.changeoverMinutes })));
+      const cacheKey = `${shifts}-${workDays}-${ordersKey}-${compatKey}`;
       
       const optimalSupplyRates: Record<number, number> = {};
       let unconstrainedStartTimes: Record<string, Date> = {};
@@ -1605,7 +1606,120 @@ export async function registerRoutes(
         unconstrainedStartTimes = { ...cached.unconstrainedStartTimes };
         bestCandidate = { ...cached.bestCandidate };
       } else {
-        // Run 1: Unconstrained (ideal schedule) - Ignore supply rate limit for the baseline run
+        // Define candidates for Multi-Heuristic Optimizer Search
+        const candidates: { rule: 'priority' | 'edd' | 'spt'; windowMs: number }[] = [
+          { rule: 'priority', windowMs: 14400000 },
+          { rule: 'priority', windowMs: 28800000 },
+          { rule: 'priority', windowMs: 57600000 },
+          { rule: 'edd', windowMs: 14400000 },
+          { rule: 'edd', windowMs: 28800000 },
+          { rule: 'edd', windowMs: 57600000 },
+          { rule: 'spt', windowMs: 14400000 },
+          { rule: 'spt', windowMs: 28800000 },
+          { rule: 'spt', windowMs: 57600000 }
+        ];
+
+        // --- STEP 1: COMPATIBILITY PRUNING PHASE ---
+        // For each part with multiple compatible chambers, test whether removing
+        // any chamber improves the overall schedule makespan. This prevents a
+        // situation where adding a "helpful" chamber actually starves other parts
+        // that depend on that chamber, causing the overall schedule to balloon.
+        const partsWithMultipleChambers: number[] = [];
+        for (const partIdStr of Object.keys(compatibilityMap)) {
+          const partId = Number(partIdStr);
+          const chamberCompats = compatibilityMap[partId];
+          if (chamberCompats && chamberCompats.length > 1) {
+            partsWithMultipleChambers.push(partId);
+          }
+        }
+
+        const initialSupplyRates: Record<number, number> = {};
+        for (const part of allParts) {
+          const rule = supplyRulesMap.get(part.id);
+          initialSupplyRates[part.id] = rule?.expectedSupplyRate || 10;
+        }
+
+        function evaluateAllCandidatesPruning(): { bestScore: number; bestDays: number; bestCand: typeof candidates[0] } {
+          let bestScore = Infinity;
+          let bestDays = Infinity;
+          let bestCand = candidates[0];
+          for (const cand of candidates) {
+            const { tasksList } = runSimulation(false, {}, cand.rule, cand.windowMs, false, initialSupplyRates);
+            const merged = getMergedTasks(tasksList);
+            let maxEndMs = workingStartTime.getTime();
+            for (const t of merged) {
+              const endMs = new Date(t.endTime).getTime();
+              if (endMs > maxEndMs) maxEndMs = endMs;
+            }
+            const wd = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
+            const score = wd * 1000 + merged.length * 10;
+            if (score < bestScore) {
+              bestScore = score;
+              bestDays = wd;
+              bestCand = cand;
+            }
+          }
+          return { bestScore, bestDays, bestCand };
+        }
+
+        if (partsWithMultipleChambers.length > 0) {
+          let pruningImproved = true;
+          while (pruningImproved) {
+            pruningImproved = false;
+
+            const baseline = evaluateAllCandidatesPruning();
+            let currentBestDays = baseline.bestDays;
+            console.log(`[PRUNING] Current baseline: ${currentBestDays} days (rule=${baseline.bestCand.rule}, window=${baseline.bestCand.windowMs})`);
+
+            for (const partId of partsWithMultipleChambers) {
+              const currentChambers = compatibilityMap[partId];
+              if (!currentChambers || currentChambers.length <= 1) continue;
+              const partName = partsMap.get(partId)?.partNumber || 'unknown';
+
+              let bestChamberConfig = currentChambers;
+              let bestPartDays = currentBestDays;
+
+              for (let removeIdx = 0; removeIdx < currentChambers.length; removeIdx++) {
+                const testChambers = currentChambers.filter((_, idx) => idx !== removeIdx);
+                if (testChambers.length === 0) continue;
+
+                compatibilityMap[partId] = testChambers;
+                delete changeoverMap[partId];
+                for (const c of testChambers) {
+                  if (c.changeoverMinutes && c.changeoverMinutes > 0) {
+                    if (!changeoverMap[partId]) changeoverMap[partId] = {};
+                    changeoverMap[partId][c.equipmentId] = c.changeoverMinutes;
+                  }
+                }
+
+                const result = evaluateAllCandidatesPruning();
+                console.log(`[PRUNING]   Part ${partId} (${partName}): remove chamber ${currentChambers[removeIdx].equipmentId} -> ${result.bestDays} days (rule=${result.bestCand.rule})`);
+
+                if (result.bestDays < bestPartDays) {
+                  bestPartDays = result.bestDays;
+                  bestChamberConfig = testChambers;
+                }
+              }
+
+              compatibilityMap[partId] = bestChamberConfig;
+              delete changeoverMap[partId];
+              for (const c of bestChamberConfig) {
+                if (c.changeoverMinutes && c.changeoverMinutes > 0) {
+                  if (!changeoverMap[partId]) changeoverMap[partId] = {};
+                  changeoverMap[partId][c.equipmentId] = c.changeoverMinutes;
+                }
+              }
+
+              if (bestPartDays < currentBestDays) {
+                pruningImproved = true;
+                console.log(`[PRUNING]   => IMPROVED: Part ${partId} (${partName}): ${currentBestDays} -> ${bestPartDays} days, kept chambers: ${JSON.stringify(bestChamberConfig.map(c => c.equipmentId))}`);
+                currentBestDays = bestPartDays;
+              }
+            }
+          }
+        }
+
+        // STEP 2: Run 1: Unconstrained (ideal schedule) using the pruned compatibility map
         const { tasksList: unconstrainedTasks } = runSimulation(true, undefined, 'priority', 28800000, true);
         unconstrainedStartTimes = {};
         
@@ -1799,18 +1913,7 @@ export async function registerRoutes(
 
 
 
-      // Define candidates for Multi-Heuristic Optimizer Search
-      const candidates: { rule: 'priority' | 'edd' | 'spt'; windowMs: number }[] = [
-        { rule: 'priority', windowMs: 14400000 },
-        { rule: 'priority', windowMs: 28800000 },
-        { rule: 'priority', windowMs: 57600000 },
-        { rule: 'edd', windowMs: 14400000 },
-        { rule: 'edd', windowMs: 28800000 },
-        { rule: 'edd', windowMs: 57600000 },
-        { rule: 'spt', windowMs: 14400000 },
-        { rule: 'spt', windowMs: 28800000 },
-        { rule: 'spt', windowMs: 57600000 }
-      ];
+
 
       bestCandidate = null;
       let minScore = Infinity;
@@ -1843,6 +1946,8 @@ export async function registerRoutes(
           bestUnconstrainedTasks = tasksList;
         }
       }
+
+
 
       // Collect all part IDs that have supply demand from the unconstrained simulation
       const supplyDemandPartIds = new Set<number>();
