@@ -1265,13 +1265,15 @@ export async function registerRoutes(
               : chambers.map(c => ({ equipmentId: c.id, durationMinutes: null, changeoverMinutes: null }));
             
             if (availableChambers.length === 0) return null;
-            let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAtMs: number } | null = null;
+            let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAtMs: number; completionTimeMs: number } | null = null;
             
             for (const chamberInfo of availableChambers) {
               const eqId = chamberInfo.equipmentId;
               const slots = machineAvailability[eqId];
               if (!slots) continue;
               
+              const candDuration = chamberInfo.durationMinutes ?? step.durationMinutes;
+
               for (let i = 0; i < slots.length; i++) {
                 let changeoverTime = 0;
                 const lastPartOnUnit = equipmentLastPart[eqId]?.[i];
@@ -1300,8 +1302,20 @@ export async function registerRoutes(
                   afterChangeoverMs = afterChangeoverDate.getTime();
                 }
                 
-                if (!selectedChamber || afterChangeoverMs < selectedChamber.availableAtMs) {
-                  selectedChamber = { eqId, unitIdx: i, durationMinutes: chamberInfo.durationMinutes, availableAtMs: afterChangeoverMs };
+                const candEndTimeMs = addWorkingMinutes(new Date(afterChangeoverMs), candDuration, shifts, workDays).getTime();
+
+                if (
+                  !selectedChamber || 
+                  candEndTimeMs < selectedChamber.completionTimeMs ||
+                  (candEndTimeMs === selectedChamber.completionTimeMs && afterChangeoverMs < selectedChamber.availableAtMs)
+                ) {
+                  selectedChamber = { 
+                    eqId, 
+                    unitIdx: i, 
+                    durationMinutes: chamberInfo.durationMinutes, 
+                    availableAtMs: afterChangeoverMs,
+                    completionTimeMs: candEndTimeMs
+                  };
                 }
               }
             }
