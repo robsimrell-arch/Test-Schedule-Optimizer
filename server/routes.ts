@@ -1206,84 +1206,38 @@ export async function registerRoutes(
           const hasCompatibilityRestrictions = partCompatibleChambers.length > 0;
           const eqRequirements = (step.equipmentRequirements || []).filter((req: any) => !chamberIds.has(req.equipmentId));
 
+          let targetStartMs = minStartTime.getTime();
           let selectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[] = [];
-          let machinesReadyAtMs = minStartTime.getTime();
-          const minStartTimeMs = minStartTime.getTime();
-          
-          for (const req of eqRequirements) {
-            const eqId = req.equipmentId;
-            const slots = machineAvailability[eqId];
-            if (!slots) continue;
-            
-            const unitsNeeded = req.quantityRequired || 1;
-            
-            const slotIndices = slots.map((time: Date, idx: number) => {
-              let changeoverTime = 0;
-              const lastPartOnUnit = equipmentLastPart[eqId]?.[idx];
-              if (eqId === vibeEquipmentId) {
-                if (lastPartOnUnit !== null) {
-                  if (lastPartOnUnit === batch.partNumberId) {
-                    changeoverTime = 15;
-                  } else {
-                    changeoverTime = 45;
-                  }
-                }
-              } else {
-                if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
-                  const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
-                  if (partChangeoverConfig) changeoverTime = partChangeoverConfig;
-                }
-              }
-              
-              const timeMs = time.getTime();
-              const baseAvailableMs = Math.max(timeMs, minStartTimeMs);
-              
-              let afterChangeoverMs = baseAvailableMs;
-              if (changeoverTime > 0) {
-                const baseAvailableDate = new Date(baseAvailableMs);
-                const afterChangeoverDate = addWorkingMinutes(baseAvailableDate, changeoverTime, shifts, workDays);
-                afterChangeoverMs = afterChangeoverDate.getTime();
-              }
-              
-              return { idx, timeMs: afterChangeoverMs };
-            }).sort((a: any, b: any) => a.timeMs - b.timeMs);
-            
-            const selectedSlots = slotIndices.slice(0, Math.min(unitsNeeded, slots.length));
-            if (selectedSlots.length > 0) {
-              const lastSlotTimeMs = selectedSlots[selectedSlots.length - 1].timeMs;
-              if (lastSlotTimeMs > machinesReadyAtMs) machinesReadyAtMs = lastSlotTimeMs;
-            }
-            for (const slot of selectedSlots) {
-              selectedUnits.push({ eqId, unitIdx: slot.idx, durationMinutes: req.durationMinutes ?? null });
-            }
-          }
-          
           let chamberDuration: number | null = null;
-          if (step.chamberRequired) {
-            let availableChambers = hasCompatibilityRestrictions
-              ? partCompatibleChambers
-              : chambers.map(c => ({ equipmentId: c.id, durationMinutes: null, changeoverMinutes: null }));
-            
-            if (availableChambers.length === 0) return null;
-            let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAtMs: number; completionTimeMs: number } | null = null;
-            
-            for (const chamberInfo of availableChambers) {
-              const eqId = chamberInfo.equipmentId;
-              const slots = machineAvailability[eqId];
-              if (!slots) continue;
-              
-              const candDuration = chamberInfo.durationMinutes ?? step.durationMinutes;
 
-              for (let i = 0; i < slots.length; i++) {
+          let availableChambers = step.chamberRequired
+            ? (hasCompatibilityRestrictions
+                ? partCompatibleChambers
+                : chambers.map(c => ({ equipmentId: c.id, durationMinutes: null, changeoverMinutes: null })))
+            : [];
+          if (step.chamberRequired && availableChambers.length === 0) return null;
+
+          let iteration = 0;
+          while (iteration < 10) {
+            iteration++;
+            let maxUnitAvailableMs = targetStartMs;
+            let currentSelectedUnits: { eqId: number; unitIdx: number; durationMinutes: number | null }[] = [];
+            let currentChamberDuration: number | null = null;
+            let valid = true;
+
+            // 1. Check non-chamber equipment requirements
+            for (const req of eqRequirements) {
+              const eqId = req.equipmentId;
+              const slots = machineAvailability[eqId];
+              if (!slots || slots.length === 0) { valid = false; break; }
+
+              const unitsNeeded = req.quantityRequired || 1;
+              const slotIndices = slots.map((time: Date, idx: number) => {
                 let changeoverTime = 0;
-                const lastPartOnUnit = equipmentLastPart[eqId]?.[i];
+                const lastPartOnUnit = equipmentLastPart[eqId]?.[idx];
                 if (eqId === vibeEquipmentId) {
                   if (lastPartOnUnit !== null) {
-                    if (lastPartOnUnit === batch.partNumberId) {
-                      changeoverTime = 15;
-                    } else {
-                      changeoverTime = 45;
-                    }
+                    changeoverTime = lastPartOnUnit === batch.partNumberId ? 15 : 45;
                   }
                 } else {
                   if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
@@ -1291,51 +1245,107 @@ export async function registerRoutes(
                     if (partChangeoverConfig) changeoverTime = partChangeoverConfig;
                   }
                 }
-                
-                const slotTimeMs = slots[i].getTime();
-                const baseAvailableMs = Math.max(slotTimeMs, machinesReadyAtMs, minStartTimeMs);
-                
+
+                const slotTimeMs = time.getTime();
+                const baseAvailableMs = Math.max(slotTimeMs, targetStartMs);
                 let afterChangeoverMs = baseAvailableMs;
                 if (changeoverTime > 0) {
-                  const baseAvailableDate = new Date(baseAvailableMs);
-                  const afterChangeoverDate = addWorkingMinutes(baseAvailableDate, changeoverTime, shifts, workDays);
+                  const afterChangeoverDate = addWorkingMinutes(new Date(baseAvailableMs), changeoverTime, shifts, workDays);
                   afterChangeoverMs = afterChangeoverDate.getTime();
                 }
-                
-                const candEndTimeMs = addWorkingMinutes(new Date(afterChangeoverMs), candDuration, shifts, workDays).getTime();
+                return { idx, timeMs: afterChangeoverMs };
+              }).sort((a, b) => a.timeMs - b.timeMs);
 
-                if (
-                  !selectedChamber || 
-                  candEndTimeMs < selectedChamber.completionTimeMs ||
-                  (candEndTimeMs === selectedChamber.completionTimeMs && afterChangeoverMs < selectedChamber.availableAtMs)
-                ) {
-                  selectedChamber = { 
-                    eqId, 
-                    unitIdx: i, 
-                    durationMinutes: chamberInfo.durationMinutes, 
-                    availableAtMs: afterChangeoverMs,
-                    completionTimeMs: candEndTimeMs
-                  };
-                }
+              if (slotIndices.length < unitsNeeded) { valid = false; break; }
+
+              const selectedSlots = slotIndices.slice(0, unitsNeeded);
+              const reqReadyMs = selectedSlots[selectedSlots.length - 1].timeMs;
+              if (reqReadyMs > maxUnitAvailableMs) {
+                maxUnitAvailableMs = reqReadyMs;
+              }
+              for (const slot of selectedSlots) {
+                currentSelectedUnits.push({ eqId, unitIdx: slot.idx, durationMinutes: req.durationMinutes ?? null });
               }
             }
-            
-            if (!selectedChamber) return null;
-            if (selectedChamber.availableAtMs > machinesReadyAtMs) machinesReadyAtMs = selectedChamber.availableAtMs;
-            selectedUnits.push({ eqId: selectedChamber.eqId, unitIdx: selectedChamber.unitIdx, durationMinutes: selectedChamber.durationMinutes });
-            chamberDuration = selectedChamber.durationMinutes;
+
+            if (!valid) return null;
+
+            // 2. Check chamber requirement if applicable
+            if (step.chamberRequired) {
+              let selectedChamber: { eqId: number; unitIdx: number; durationMinutes: number | null; availableAtMs: number; completionTimeMs: number } | null = null;
+              for (const chamberInfo of availableChambers) {
+                const eqId = chamberInfo.equipmentId;
+                const slots = machineAvailability[eqId];
+                if (!slots) continue;
+
+                const candDuration = chamberInfo.durationMinutes ?? step.durationMinutes;
+                for (let i = 0; i < slots.length; i++) {
+                  let changeoverTime = 0;
+                  const lastPartOnUnit = equipmentLastPart[eqId]?.[i];
+                  if (eqId === vibeEquipmentId) {
+                    if (lastPartOnUnit !== null) {
+                      changeoverTime = lastPartOnUnit === batch.partNumberId ? 15 : 45;
+                    }
+                  } else {
+                    if (lastPartOnUnit !== null && lastPartOnUnit !== batch.partNumberId) {
+                      const partChangeoverConfig = changeoverMap[batch.partNumberId]?.[eqId];
+                      if (partChangeoverConfig) changeoverTime = partChangeoverConfig;
+                    }
+                  }
+
+                  const slotTimeMs = slots[i].getTime();
+                  const baseAvailableMs = Math.max(slotTimeMs, targetStartMs);
+                  let afterChangeoverMs = baseAvailableMs;
+                  if (changeoverTime > 0) {
+                    const afterChangeoverDate = addWorkingMinutes(new Date(baseAvailableMs), changeoverTime, shifts, workDays);
+                    afterChangeoverMs = afterChangeoverDate.getTime();
+                  }
+
+                  const candEndTimeMs = addWorkingMinutes(new Date(afterChangeoverMs), candDuration, shifts, workDays).getTime();
+                  if (
+                    !selectedChamber ||
+                    candEndTimeMs < selectedChamber.completionTimeMs ||
+                    (candEndTimeMs === selectedChamber.completionTimeMs && afterChangeoverMs < selectedChamber.availableAtMs)
+                  ) {
+                    selectedChamber = {
+                      eqId,
+                      unitIdx: i,
+                      durationMinutes: chamberInfo.durationMinutes,
+                      availableAtMs: afterChangeoverMs,
+                      completionTimeMs: candEndTimeMs
+                    };
+                  }
+                }
+              }
+
+              if (!selectedChamber) return null;
+
+              if (selectedChamber.availableAtMs > maxUnitAvailableMs) {
+                maxUnitAvailableMs = selectedChamber.availableAtMs;
+              }
+              currentSelectedUnits.push({ eqId: selectedChamber.eqId, unitIdx: selectedChamber.unitIdx, durationMinutes: selectedChamber.durationMinutes });
+              currentChamberDuration = selectedChamber.durationMinutes;
+            }
+
+            if (maxUnitAvailableMs <= targetStartMs) {
+              selectedUnits = currentSelectedUnits;
+              chamberDuration = currentChamberDuration;
+              break;
+            } else {
+              targetStartMs = maxUnitAvailableMs;
+            }
           }
-          
+
           if (selectedUnits.length === 0) return null;
+
           let effectiveDuration = step.durationMinutes;
           if (step.chamberRequired && chamberDuration !== null) effectiveDuration = chamberDuration;
-          
-          const machinesReadyAt = new Date(machinesReadyAtMs);
-          const actualStartTime = getNextWorkingTime(machinesReadyAt, shifts, workDays);
-          const actualEndTime = step.chamberRequired 
+
+          const actualStartTime = getNextWorkingTime(new Date(targetStartMs), shifts, workDays);
+          const actualEndTime = step.chamberRequired
             ? addMinutes(actualStartTime, effectiveDuration)
             : addWorkingMinutes(actualStartTime, effectiveDuration, shifts, workDays);
-          
+
           return { startTime: actualStartTime, endTime: actualEndTime, selectedUnits };
         }
 
@@ -1412,7 +1422,7 @@ export async function registerRoutes(
             
             batchOptions.sort((a, b) => {
               const timeDiff = Math.abs(a.baseTimeMs - b.baseTimeMs);
-              if (timeDiff <= 14400000) { // 4 * 60 * 60 * 1000
+              if (timeDiff <= 14400000) { // 4 hours window
                 if (sortingRule === 'edd') {
                   if (a.batch.dueDateMs !== b.batch.dueDateMs) {
                     return a.batch.dueDateMs - b.batch.dueDateMs;
@@ -1427,7 +1437,7 @@ export async function registerRoutes(
                 }
               }
               
-              if (a.biasedTimeMs !== b.biasedTimeMs) return a.biasedTimeMs - b.biasedTimeMs;
+              if (a.baseTimeMs !== b.baseTimeMs) return a.baseTimeMs - b.baseTimeMs;
               
               if (sortingRule === 'edd') {
                 if (a.batch.dueDateMs !== b.batch.dueDateMs) {
