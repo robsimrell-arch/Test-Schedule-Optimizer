@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/Layout";
 import { ActiveConfigBadge } from "@/components/ActiveConfigBadge";
 import { useSchedule } from "@/hooks/use-manufacturing";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
 import ExcelJS from "exceljs";
+import { api } from "@shared/routes";
+import { useToast } from "@/hooks/use-toast";
 
 const tzOffsetMs = new Date().getTimezoneOffset() * 60 * 1000;
 const toFactoryLocal = (iso: string) => new Date(new Date(iso).getTime() + tzOffsetMs);
@@ -39,7 +42,7 @@ const ganttStyles = `
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import { AlertCircle, AlertTriangle, BarChart3, CalendarDays, Clock, Calendar, Plus, Trash2, HelpCircle, CheckCircle2, Ship, TrendingUp, Gauge, Save, Download } from "lucide-react";
+import { AlertCircle, AlertTriangle, BarChart3, CalendarDays, Clock, Calendar, Plus, Trash2, HelpCircle, CheckCircle2, Ship, TrendingUp, Gauge, Save, Download, RotateCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -140,6 +143,9 @@ function ProgressiveLoader() {
 }
 
 export default function Dashboard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   const [shiftMode, setShiftMode] = useState<1 | 2 | 3>(() => {
     const saved = localStorage.getItem("ts-optimizer-shiftMode");
     return saved ? (Number(saved) as 1 | 2 | 3) : 1;
@@ -149,6 +155,14 @@ export default function Dashboard() {
     return saved ? (Number(saved) as 5 | 6 | 7) : 5;
   });
   const { data: schedule, isLoading, isFetching, isError } = useSchedule(shiftMode, workDays);
+
+  const handleRecalculateSchedule = async () => {
+    await queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+    toast({
+      title: "Schedule Recalculated",
+      description: "Production schedule has been updated to reflect the latest equipment quantities and work orders.",
+    });
+  };
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     const saved = localStorage.getItem("ts-optimizer-viewMode");
     return saved && Object.values(ViewMode).includes(saved as ViewMode) 
@@ -513,14 +527,27 @@ export default function Dashboard() {
     <Layout>
       <style>{ganttStyles}</style>
       <div className="space-y-8">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">Production Schedule</h1>
-            <ActiveConfigBadge />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-bold tracking-tight">Production Schedule</h1>
+              <ActiveConfigBadge />
+            </div>
+            <p className="text-muted-foreground mt-2">
+              Optimized timeline based on equipment availability and order priority.
+            </p>
           </div>
-          <p className="text-muted-foreground mt-2">
-            Optimized timeline based on equipment availability and order priority.
-          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRecalculateSchedule}
+            disabled={isFetching}
+            className="flex items-center gap-2 h-9 shadow-sm shrink-0 self-start sm:self-center"
+            data-testid="button-recalculate-schedule"
+          >
+            <RotateCw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
+            {isFetching ? "Recalculating..." : "Recalculate Schedule"}
+          </Button>
         </div>
 
         <Tabs defaultValue="timeline" className="space-y-6">
@@ -795,6 +822,17 @@ export default function Dashboard() {
                       <TabsTrigger value={ViewMode.Week}>Week</TabsTrigger>
                     </TabsList>
                   </Tabs>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRecalculateSchedule}
+                    disabled={isFetching}
+                    className="flex items-center gap-2 h-9"
+                    data-testid="button-recalculate-schedule-timeline"
+                  >
+                    <RotateCw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
+                    {isFetching ? "Recalculating..." : "Recalculate Schedule"}
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"

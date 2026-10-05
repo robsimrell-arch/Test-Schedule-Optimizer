@@ -34,7 +34,8 @@ export function useCreateEquipment() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.equipment.list.path] });
       queryClient.invalidateQueries({ queryKey: ["/api/chambers"] });
-      toast({ title: "Success", description: "Test equipment added successfully" });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Test equipment added and schedule recalculated" });
     },
     onError: (error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -54,7 +55,9 @@ export function useDeleteEquipment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.equipment.list.path] });
-      toast({ title: "Success", description: "Equipment deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/chambers"] });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Equipment deleted and schedule recalculated" });
     },
   });
 }
@@ -77,7 +80,8 @@ export function useUpdateEquipment() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.equipment.list.path] });
       queryClient.invalidateQueries({ queryKey: ["/api/chambers"] });
-      toast({ title: "Success", description: "Equipment updated" });
+      queryClient.invalidateQueries({ queryKey: [api.schedule.calculate.path] });
+      toast({ title: "Success", description: "Equipment updated and schedule recalculated" });
     },
   });
 }
