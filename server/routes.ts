@@ -1666,7 +1666,7 @@ export async function registerRoutes(
             if (endMs > maxEndMs) maxEndMs = endMs;
           }
           const days = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
-          const score = days * 100 + merged.length * 25;
+          const score = days * 10000 + merged.length * 1;
           return { days, score };
         }
 
@@ -1963,8 +1963,8 @@ export async function registerRoutes(
         
         const workingDays = countWorkingDaysBetween(workingStartTime, new Date(maxEndMs), workDays);
         
-        // Objective score: Balanced weighting between completion days (weight 100) and merged task count (weight 25)
-        const score = workingDays * 100 + merged.length * 25;
+        // Objective score: Completion days strictly dominates (weight 10000), task count acts as secondary tie-breaker (weight 1)
+        const score = workingDays * 10000 + merged.length * 1;
         
         if (score < minScore) {
           minScore = score;
